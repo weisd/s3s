@@ -25,6 +25,7 @@ pub fn register(tcx: &mut TestContext) {
     case!(tcx, Basic, Put, test_put_object_with_metadata);
     case!(tcx, Basic, Put, test_put_object_larger);
     case!(tcx, Basic, Put, test_put_object_with_checksum_algorithm);
+    case!(tcx, Basic, Put, test_put_object_with_content_checksums);
     case!(tcx, Basic, Copy, test_copy_object);
 }
 
@@ -389,49 +390,169 @@ impl Put {
         let bucket = self.bucket.as_str();
         let key = "with-checksum-trailer";
 
-        let body = {
-            let bytes = Bytes::from_static(&[b'a'; 1024]);
+        for checksum_algorithm in [
+            ChecksumAlgorithm::Crc32,
+            ChecksumAlgorithm::Crc32C,
+            ChecksumAlgorithm::Sha1,
+            ChecksumAlgorithm::Sha256,
+            ChecksumAlgorithm::Crc64Nvme,
+        ] {
+            let body = {
+                let bytes = Bytes::from_static(&[b'a'; 1024]);
 
-            let stream = futures::stream::repeat_with(move || {
-                let frame = http_body::Frame::data(bytes.clone());
-                Ok::<_, std::io::Error>(frame)
-            });
+                let stream = futures::stream::repeat_with(move || {
+                    let frame = http_body::Frame::data(bytes.clone());
+                    Ok::<_, std::io::Error>(frame)
+                });
 
-            let body = WithSizeHint::new(StreamBody::new(stream.take(70)), 70 * 1024);
-            ByteStream::new(SdkBody::from_body_1_x(body))
-        };
+                let body = WithSizeHint::new(StreamBody::new(stream.take(70)), 70 * 1024);
+                ByteStream::new(SdkBody::from_body_1_x(body))
+            };
 
-        let put_resp = s3
+            let put_resp = s3
+                .put_object()
+                .bucket(bucket)
+                .key(key)
+                .checksum_algorithm(checksum_algorithm.clone())
+                .body(body)
+                .send()
+                .await?;
+
+            let put_resp_checksum = match checksum_algorithm {
+                ChecksumAlgorithm::Crc32 => put_resp
+                    .checksum_crc32()
+                    .expect("PUT should return checksum when checksum_algorithm is used"),
+                ChecksumAlgorithm::Crc32C => put_resp
+                    .checksum_crc32_c()
+                    .expect("PUT should return checksum when checksum_algorithm is used"),
+                ChecksumAlgorithm::Sha1 => put_resp
+                    .checksum_sha1()
+                    .expect("PUT should return checksum when checksum_algorithm is used"),
+                ChecksumAlgorithm::Sha256 => put_resp
+                    .checksum_sha256()
+                    .expect("PUT should return checksum when checksum_algorithm is used"),
+                ChecksumAlgorithm::Crc64Nvme => put_resp
+                    .checksum_crc64_nvme()
+                    .expect("PUT should return checksum when checksum_algorithm is used"),
+                _ => panic!("Unsupported checksum algorithm"),
+            };
+
+            let mut resp = s3
+                .get_object()
+                .bucket(bucket)
+                .key(key)
+                .checksum_mode(ChecksumMode::Enabled)
+                .send()
+                .await?;
+
+            let body = std::mem::replace(&mut resp.body, ByteStream::new(SdkBody::empty()))
+                .collect()
+                .await?;
+            let body = String::from_utf8(body.to_vec())?;
+            assert_eq!(body, "a".repeat(70 * 1024));
+
+            let get_resp_checksum = match checksum_algorithm {
+                ChecksumAlgorithm::Crc32 => resp.checksum_crc32(),
+                ChecksumAlgorithm::Crc32C => resp.checksum_crc32_c(),
+                ChecksumAlgorithm::Sha1 => resp.checksum_sha1(),
+                ChecksumAlgorithm::Sha256 => resp.checksum_sha256(),
+                ChecksumAlgorithm::Crc64Nvme => resp.checksum_crc64_nvme(),
+                _ => panic!("Unsupported checksum algorithm"),
+            };
+
+            assert_eq!(get_resp_checksum, Some(put_resp_checksum));
+        }
+
+        Ok(())
+    }
+
+    async fn test_put_object_with_content_checksums(self: Arc<Self>) -> Result {
+        let s3 = &self.s3;
+        let bucket = self.bucket.as_str();
+        let key = "file-with-content-checksums";
+
+        // Create test content
+        let content = "Hello, World! This is a test content for checksum validation. 你好世界！";
+        let content_bytes = content.as_bytes();
+
+        // Calculate MD5 hash
+        let md5_digest = md5::compute(content_bytes);
+        let md5_hash = base64_simd::STANDARD.encode_to_string(md5_digest.as_ref());
+
+        // Test with Content-MD5
+        s3.put_object()
+            .bucket(bucket)
+            .key(format!("{key}-md5"))
+            .body(ByteStream::from_static(content_bytes))
+            .content_md5(&md5_hash)
+            .send()
+            .await?;
+
+        // Test with different content sizes and MD5
+        let large_content = "x".repeat(2048);
+        let large_md5_digest = md5::compute(large_content.as_bytes());
+        let large_md5_hash = base64_simd::STANDARD.encode_to_string(large_md5_digest.as_ref());
+
+        s3.put_object()
+            .bucket(bucket)
+            .key(format!("{key}-large"))
+            .body(ByteStream::from(large_content.clone().into_bytes()))
+            .content_md5(&large_md5_hash)
+            .send()
+            .await?;
+
+        // Test with empty content and MD5
+        let empty_content = "";
+        let empty_md5_digest = md5::compute(empty_content.as_bytes());
+        let empty_md5_hash = base64_simd::STANDARD.encode_to_string(empty_md5_digest.as_ref());
+
+        s3.put_object()
+            .bucket(bucket)
+            .key(format!("{key}-empty"))
+            .body(ByteStream::from_static(empty_content.as_bytes()))
+            .content_md5(&empty_md5_hash)
+            .send()
+            .await?;
+
+        // Verify all objects were uploaded correctly
+        for (suffix, expected_content) in [("md5", content), ("large", &large_content), ("empty", empty_content)] {
+            let resp = s3.get_object().bucket(bucket).key(format!("{key}-{suffix}")).send().await?;
+
+            let body = resp.body.collect().await?;
+            let body = String::from_utf8(body.to_vec())?;
+            assert_eq!(body, expected_content);
+        }
+
+        // Test with incorrect MD5 (should fail)
+        let incorrect_md5 = base64_simd::STANDARD.encode_to_string(b"incorrect_md5_hash");
+        let result = s3
             .put_object()
             .bucket(bucket)
-            .key(key)
-            .checksum_algorithm(ChecksumAlgorithm::Crc32)
-            .body(body)
+            .key(format!("{key}-incorrect-md5"))
+            .body(ByteStream::from_static(content_bytes))
+            .content_md5(&incorrect_md5)
             .send()
-            .await?;
+            .await;
 
-        let put_crc32 = put_resp
-            .checksum_crc32()
-            .expect("PUT should return checksum when checksum_algorithm is used");
+        // This should fail with a checksum mismatch error
+        assert!(result.is_err(), "Expected checksum mismatch error for incorrect MD5");
 
-        let resp = s3
-            .get_object()
+        // Test with correct MD5 but wrong content (should fail)
+        let wrong_content = "This is different content";
+        let wrong_md5_digest = md5::compute(wrong_content.as_bytes());
+        let wrong_md5_hash = base64_simd::STANDARD.encode_to_string(wrong_md5_digest.as_ref());
+
+        let result = s3
+            .put_object()
             .bucket(bucket)
-            .key(key)
-            .checksum_mode(ChecksumMode::Enabled)
+            .key(format!("{key}-wrong-content"))
+            .body(ByteStream::from_static(content_bytes)) // Using original content
+            .content_md5(&wrong_md5_hash) // But wrong MD5
             .send()
-            .await?;
+            .await;
 
-        let get_crc32 = resp
-            .checksum_crc32()
-            .expect("GET should return checksum when checksum_mode is enabled and full object is returned")
-            .to_owned();
-
-        let body = resp.body.collect().await?;
-        let body = String::from_utf8(body.to_vec())?;
-        assert_eq!(body, "a".repeat(70 * 1024));
-
-        assert_eq!(get_crc32, put_crc32);
+        // This should also fail
+        assert!(result.is_err(), "Expected checksum mismatch error for wrong content with correct MD5");
 
         Ok(())
     }
