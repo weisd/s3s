@@ -14,6 +14,7 @@ use aws_sdk_s3::primitives::SdkBody;
 use bytes::Bytes;
 use futures::StreamExt as _;
 use http_body_util::StreamBody;
+use md5::Digest as _;
 
 pub fn register(tcx: &mut TestContext) {
     case!(tcx, Basic, Essential, test_list_buckets);
@@ -390,13 +391,15 @@ impl Put {
         let bucket = self.bucket.as_str();
         let key = "with-checksum-trailer";
 
-        for checksum_algorithm in [
+        let checksum_algorithms = [
             ChecksumAlgorithm::Crc32,
             ChecksumAlgorithm::Crc32C,
             ChecksumAlgorithm::Sha1,
             ChecksumAlgorithm::Sha256,
             ChecksumAlgorithm::Crc64Nvme,
-        ] {
+        ];
+
+        for checksum_algorithm in checksum_algorithms {
             let body = {
                 let bytes = Bytes::from_static(&[b'a'; 1024]);
 
@@ -476,8 +479,8 @@ impl Put {
         let content_bytes = content.as_bytes();
 
         // Calculate MD5 hash
-        let md5_digest = md5::compute(content_bytes);
-        let md5_hash = base64_simd::STANDARD.encode_to_string(md5_digest.as_ref());
+        let md5_digest = md5::Md5::digest(content_bytes);
+        let md5_hash = base64_simd::STANDARD.encode_to_string(md5_digest);
 
         // Test with Content-MD5
         s3.put_object()
@@ -490,8 +493,8 @@ impl Put {
 
         // Test with different content sizes and MD5
         let large_content = "x".repeat(2048);
-        let large_md5_digest = md5::compute(large_content.as_bytes());
-        let large_md5_hash = base64_simd::STANDARD.encode_to_string(large_md5_digest.as_ref());
+        let large_md5_digest = md5::Md5::digest(large_content.as_bytes());
+        let large_md5_hash = base64_simd::STANDARD.encode_to_string(large_md5_digest);
 
         s3.put_object()
             .bucket(bucket)
@@ -503,8 +506,8 @@ impl Put {
 
         // Test with empty content and MD5
         let empty_content = "";
-        let empty_md5_digest = md5::compute(empty_content.as_bytes());
-        let empty_md5_hash = base64_simd::STANDARD.encode_to_string(empty_md5_digest.as_ref());
+        let empty_md5_digest = md5::Md5::digest(empty_content.as_bytes());
+        let empty_md5_hash = base64_simd::STANDARD.encode_to_string(empty_md5_digest);
 
         s3.put_object()
             .bucket(bucket)
@@ -539,8 +542,8 @@ impl Put {
 
         // Test with correct MD5 but wrong content (should fail)
         let wrong_content = "This is different content";
-        let wrong_md5_digest = md5::compute(wrong_content.as_bytes());
-        let wrong_md5_hash = base64_simd::STANDARD.encode_to_string(wrong_md5_digest.as_ref());
+        let wrong_md5_digest = md5::Md5::digest(wrong_content.as_bytes());
+        let wrong_md5_hash = base64_simd::STANDARD.encode_to_string(wrong_md5_digest);
 
         let result = s3
             .put_object()
