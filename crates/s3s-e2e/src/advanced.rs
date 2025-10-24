@@ -151,7 +151,7 @@ impl Multipart {
             .send()
             .await?;
 
-        let part2_checksum_crc32 = part2_resp.checksum_crc32().expect("checksum_crc32 should be present");
+        let part2_checksum_crc32 = part2_resp.checksum_crc32().expect("part 2 checksum_crc32 should be present in upload response");
 
         // Complete multipart upload
         let completed_parts = vec![
