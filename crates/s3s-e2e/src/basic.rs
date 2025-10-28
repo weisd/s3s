@@ -19,6 +19,7 @@ use md5::Digest as _;
 pub fn register(tcx: &mut TestContext) {
     case!(tcx, Basic, Essential, test_list_buckets);
     case!(tcx, Basic, Essential, test_list_objects);
+    case!(tcx, Basic, Essential, test_list_objects_v2_pagination);
     case!(tcx, Basic, Essential, test_get_object);
     case!(tcx, Basic, Essential, test_delete_object);
     case!(tcx, Basic, Essential, test_head_operations);
@@ -251,6 +252,80 @@ impl Essential {
 
         {
             delete_object_strict(s3, bucket, key).await?;
+            delete_bucket_strict(s3, bucket).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn test_list_objects_v2_pagination(self: Arc<Self>) -> Result {
+        let s3 = &self.s3;
+
+        let bucket = "test-max-keys";
+        let content = "test";
+        let keys_count = 54;
+        let page_size: usize = 10;
+        let keys: Vec<_> = (0..keys_count).map(|i| format!("file-{i:04}.txt")).collect();
+
+        {
+            // Clean up any existing files and bucket
+            for key in &keys {
+                delete_object_loose(s3, bucket, key).await?;
+            }
+            delete_bucket_loose(s3, bucket).await?;
+        }
+
+        {
+            create_bucket(s3, bucket).await?;
+
+            // Create 10 files
+            for key in &keys {
+                s3.put_object()
+                    .bucket(bucket)
+                    .key(key)
+                    .body(ByteStream::from_static(content.as_bytes()))
+                    .send()
+                    .await?;
+            }
+
+            let mut continuation_token = None;
+            let mut page: usize = 1;
+
+            loop {
+                let response = s3
+                    .list_objects_v2()
+                    .bucket(bucket)
+                    .max_keys(i32::try_from(page_size).unwrap())
+                    .set_continuation_token(continuation_token)
+                    .send()
+                    .await?;
+
+                let contents: Vec<_> = response.contents().iter().filter_map(|obj| obj.key()).collect();
+
+                let mut n: usize = (page - 1) * page_size + page_size - 1;
+
+                if n >= keys_count {
+                    n = keys_count - 1;
+                }
+
+                let last_key = &keys[n];
+
+                assert_eq!(last_key, contents.last().unwrap());
+
+                if response.is_truncated().unwrap_or(false) {
+                    continuation_token = response.next_continuation_token().map(ToString::to_string);
+                    page += 1;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        {
+            // Clean up all test files
+            for key in &keys {
+                delete_object_strict(s3, bucket, key).await?;
+            }
             delete_bucket_strict(s3, bucket).await?;
         }
 
