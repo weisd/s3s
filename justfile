@@ -20,6 +20,9 @@ lint:
 test:
     cargo test --workspace --all-features --all-targets
 
+semver-checks:
+    cargo semver-checks
+
 doc:
     RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --open --no-deps --all-features
 
@@ -34,17 +37,20 @@ codegen:
 install name *ARGS:
     uv run ./scripts/install.py {{name}} {{ARGS}}
 
+coverage *ARGS:
+    cargo llvm-cov -p s3s --all-features --html {{ARGS}}
+
 # ------------------------------------------------
 
 sync-version:
-    cargo set-version -p s3s            0.12.0-rc.3
-    cargo set-version -p s3s-aws        0.12.0-rc.3
-    cargo set-version -p s3s-model      0.12.0-rc.3
-    cargo set-version -p s3s-policy     0.12.0-rc.3
-    cargo set-version -p s3s-test       0.12.0-rc.3
-    cargo set-version -p s3s-proxy      0.12.0-rc.3
-    cargo set-version -p s3s-fs         0.12.0-rc.3
-    cargo set-version -p s3s-e2e        0.12.0-rc.3
+    cargo set-version -p s3s            0.14.0-dev
+    cargo set-version -p s3s-aws        0.14.0-dev
+    cargo set-version -p s3s-model      0.14.0-dev
+    cargo set-version -p s3s-policy     0.14.0-dev
+    cargo set-version -p s3s-test       0.14.0-dev
+    cargo set-version -p s3s-proxy      0.14.0-dev
+    cargo set-version -p s3s-fs         0.14.0-dev
+    cargo set-version -p s3s-e2e        0.14.0-dev
 
 # ------------------------------------------------
 

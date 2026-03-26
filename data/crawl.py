@@ -93,7 +93,9 @@ def crawl_error_codes():
                 http_status_code = None
             else:
                 m = re.match(r"(\d{3})[\s\S]*", t2)
-                assert m is not None, f"t2: {repr(t2)}"
+                if m is None:
+                    continue  # FIXME: EntityTooLarge 405
+                # assert m is not None, f"t2: {repr(t2)}"
                 http_status_code = int(m.group(1))
 
             ans.append(
@@ -111,10 +113,22 @@ def crawl_error_codes():
 
 
 @cli.command()
+def download_date_time_format_test_suite():
+    # https://github.com/smithy-lang/smithy-rs/blob/main/rust-runtime/aws-smithy-types/test_data/date_time_format_test_suite.json
+    url = "https://github.com/smithy-lang/smithy-rs/raw/main/rust-runtime/aws-smithy-types/test_data/date_time_format_test_suite.json"
+    resp = requests.get(url)
+    assert resp.status_code == 200
+    assert resp.json()
+    with open(model_dir / "date_time_format_test_suite.json", "w") as f:
+        f.write(resp.text)
+
+
+@cli.command()
 def update():
     download_s3_model()
     download_sts_model()
     crawl_error_codes()
+    download_date_time_format_test_suite()
 
 
 if __name__ == "__main__":

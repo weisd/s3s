@@ -30,6 +30,7 @@ use std::io::Write;
 //   Serialize: CreateBucketConfiguration
 // Deserialize: CreateBucketConfiguration
 //   Serialize: CreateMultipartUploadOutput
+//   Serialize: CreateSessionOutput
 //   Serialize: Delete
 // Deserialize: Delete
 //   Serialize: DeleteObjectsOutput
@@ -72,6 +73,8 @@ use std::io::Write;
 // Deserialize: ListBucketMetricsConfigurationsOutput
 //   Serialize: ListBucketsOutput
 // Deserialize: ListBucketsOutput
+//   Serialize: ListDirectoryBucketsOutput
+// Deserialize: ListDirectoryBucketsOutput
 //   Serialize: ListMultipartUploadsOutput
 //   Serialize: ListObjectVersionsOutput
 //   Serialize: ListObjectsOutput
@@ -126,6 +129,8 @@ use std::io::Write;
 // DeserializeContent: AccessControlTranslation
 //   SerializeContent: AccessKeyIdType
 // DeserializeContent: AccessKeyIdType
+//   SerializeContent: AccessKeyIdValue
+// DeserializeContent: AccessKeyIdValue
 //   SerializeContent: AccessKeySecretType
 // DeserializeContent: AccessKeySecretType
 //   SerializeContent: AccessPointArn
@@ -238,6 +243,7 @@ use std::io::Write;
 //   SerializeContent: CreateBucketConfiguration
 // DeserializeContent: CreateBucketConfiguration
 //   SerializeContent: CreateMultipartUploadOutput
+//   SerializeContent: CreateSessionOutput
 //   SerializeContent: CreationDate
 // DeserializeContent: CreationDate
 //   SerializeContent: Credentials
@@ -254,6 +260,8 @@ use std::io::Write;
 // DeserializeContent: DaysAfterInitiation
 //   SerializeContent: DefaultRetention
 // DeserializeContent: DefaultRetention
+//   SerializeContent: DelMarkerExpiration
+// DeserializeContent: DelMarkerExpiration
 //   SerializeContent: Delete
 // DeserializeContent: Delete
 //   SerializeContent: DeleteMarker
@@ -279,6 +287,8 @@ use std::io::Write;
 // DeserializeContent: Description
 //   SerializeContent: Destination
 // DeserializeContent: Destination
+//   SerializeContent: DirectoryBucketToken
+// DeserializeContent: DirectoryBucketToken
 //   SerializeContent: DisplayName
 // DeserializeContent: DisplayName
 //   SerializeContent: ETag
@@ -319,6 +329,8 @@ use std::io::Write;
 // DeserializeContent: ExistingObjectReplicationStatus
 //   SerializeContent: ExpirationStatus
 // DeserializeContent: ExpirationStatus
+//   SerializeContent: ExpiredObjectAllVersions
+// DeserializeContent: ExpiredObjectAllVersions
 //   SerializeContent: ExpiredObjectDeleteMarker
 // DeserializeContent: ExpiredObjectDeleteMarker
 //   SerializeContent: ExposeHeader
@@ -471,6 +483,8 @@ use std::io::Write;
 // DeserializeContent: ListBucketMetricsConfigurationsOutput
 //   SerializeContent: ListBucketsOutput
 // DeserializeContent: ListBucketsOutput
+//   SerializeContent: ListDirectoryBucketsOutput
+// DeserializeContent: ListDirectoryBucketsOutput
 //   SerializeContent: ListMultipartUploadsOutput
 //   SerializeContent: ListObjectVersionsOutput
 //   SerializeContent: ListObjectsOutput
@@ -736,6 +750,12 @@ use std::io::Write;
 // DeserializeContent: ServerSideEncryptionConfiguration
 //   SerializeContent: ServerSideEncryptionRule
 // DeserializeContent: ServerSideEncryptionRule
+//   SerializeContent: SessionCredentialValue
+// DeserializeContent: SessionCredentialValue
+//   SerializeContent: SessionCredentials
+// DeserializeContent: SessionCredentials
+//   SerializeContent: SessionExpiration
+// DeserializeContent: SessionExpiration
 //   SerializeContent: Setting
 // DeserializeContent: Setting
 //   SerializeContent: SimplePrefix
@@ -859,7 +879,10 @@ impl Serialize for BucketLifecycleConfiguration {
 
 impl<'xml> Deserialize<'xml> for BucketLifecycleConfiguration {
     fn deserialize(d: &mut Deserializer<'xml>) -> DeResult<Self> {
-        d.named_element("LifecycleConfiguration", Deserializer::content)
+        // MinIO reference:
+        // - https://github.com/minio/minio/blob/7aac2a2c5b7c882e68c1ce017d8256be2feea27f/internal/bucket/lifecycle/lifecycle.go#L129-L166
+        // - https://github.com/minio/minio/blob/7aac2a2c5b7c882e68c1ce017d8256be2feea27f/internal/bucket/lifecycle/lifecycle_test.go#L441-L447
+        d.named_element_any(&["LifecycleConfiguration", "BucketLifecycleConfiguration"], Deserializer::content)
     }
 }
 
@@ -944,6 +967,12 @@ impl<'xml> Deserialize<'xml> for CreateBucketConfiguration {
 impl Serialize for CreateMultipartUploadOutput {
     fn serialize<W: Write>(&self, s: &mut Serializer<W>) -> SerResult {
         s.content_with_ns("InitiateMultipartUploadResult", XMLNS_S3, self)
+    }
+}
+
+impl Serialize for CreateSessionOutput {
+    fn serialize<W: Write>(&self, s: &mut Serializer<W>) -> SerResult {
+        s.content_with_ns("CreateSessionResult", XMLNS_S3, self)
     }
 }
 
@@ -1184,6 +1213,18 @@ impl Serialize for ListBucketsOutput {
 impl<'xml> Deserialize<'xml> for ListBucketsOutput {
     fn deserialize(d: &mut Deserializer<'xml>) -> DeResult<Self> {
         d.named_element("ListAllMyBucketsResult", Deserializer::content)
+    }
+}
+
+impl Serialize for ListDirectoryBucketsOutput {
+    fn serialize<W: Write>(&self, s: &mut Serializer<W>) -> SerResult {
+        s.content_with_ns("ListAllMyDirectoryBucketsResult", XMLNS_S3, self)
+    }
+}
+
+impl<'xml> Deserialize<'xml> for ListDirectoryBucketsOutput {
+    fn deserialize(d: &mut Deserializer<'xml>) -> DeResult<Self> {
+        d.named_element("ListAllMyDirectoryBucketsResult", Deserializer::content)
     }
 }
 
@@ -1960,6 +2001,9 @@ impl<'xml> DeserializeContent<'xml> for BucketInfo {
 }
 impl SerializeContent for BucketLifecycleConfiguration {
     fn serialize_content<W: Write>(&self, s: &mut Serializer<W>) -> SerResult {
+        if let Some(ref val) = self.expiry_updated_at {
+            s.timestamp("ExpiryUpdatedAt", val, TimestampFormat::DateTime)?;
+        }
         {
             let iter = &self.rules;
             s.flattened_list("Rule", iter)?;
@@ -1970,16 +2014,29 @@ impl SerializeContent for BucketLifecycleConfiguration {
 
 impl<'xml> DeserializeContent<'xml> for BucketLifecycleConfiguration {
     fn deserialize_content(d: &mut Deserializer<'xml>) -> DeResult<Self> {
+        let mut expiry_updated_at: Option<Date> = None;
         let mut rules: Option<LifecycleRules> = None;
         d.for_each_element(|d, x| match x {
+            b"ExpiryUpdatedAt" => {
+                if expiry_updated_at.is_some() {
+                    return Err(DeError::DuplicateField);
+                }
+                expiry_updated_at = Some(d.timestamp(TimestampFormat::DateTime)?);
+                Ok(())
+            }
             b"Rule" => {
                 let ans: LifecycleRule = d.content()?;
                 rules.get_or_insert_with(List::new).push(ans);
                 Ok(())
             }
-            _ => Err(DeError::UnexpectedTagName),
+            // MinIO reference:
+            // - https://github.com/minio/minio/blob/7aac2a2c5b7c882e68c1ce017d8256be2feea27f/internal/bucket/lifecycle/lifecycle.go#L102-L166
+            // - https://github.com/minio/minio/blob/7aac2a2c5b7c882e68c1ce017d8256be2feea27f/internal/bucket/lifecycle/delmarker-expiration.go#L27-L64
+            // - https://github.com/minio/minio/blob/7aac2a2c5b7c882e68c1ce017d8256be2feea27f/internal/bucket/lifecycle/expiration.go#L115-L124
+            _ => Ok(()),
         })?;
         Ok(Self {
+            expiry_updated_at,
             rules: rules.ok_or(DeError::MissingField)?,
         })
     }
@@ -3029,6 +3086,13 @@ impl SerializeContent for CreateMultipartUploadOutput {
     }
 }
 
+impl SerializeContent for CreateSessionOutput {
+    fn serialize_content<W: Write>(&self, s: &mut Serializer<W>) -> SerResult {
+        s.content("Credentials", &self.credentials)?;
+        Ok(())
+    }
+}
+
 impl SerializeContent for Credentials {
     fn serialize_content<W: Write>(&self, s: &mut Serializer<W>) -> SerResult {
         s.content("AccessKeyId", &self.access_key_id)?;
@@ -3146,6 +3210,31 @@ impl<'xml> DeserializeContent<'xml> for DefaultRetention {
             _ => Err(DeError::UnexpectedTagName),
         })?;
         Ok(Self { days, mode, years })
+    }
+}
+impl SerializeContent for DelMarkerExpiration {
+    fn serialize_content<W: Write>(&self, s: &mut Serializer<W>) -> SerResult {
+        if let Some(ref val) = self.days {
+            s.content("Days", val)?;
+        }
+        Ok(())
+    }
+}
+
+impl<'xml> DeserializeContent<'xml> for DelMarkerExpiration {
+    fn deserialize_content(d: &mut Deserializer<'xml>) -> DeResult<Self> {
+        let mut days: Option<Days> = None;
+        d.for_each_element(|d, x| match x {
+            b"Days" => {
+                if days.is_some() {
+                    return Err(DeError::DuplicateField);
+                }
+                days = Some(d.content()?);
+                Ok(())
+            }
+            _ => Err(DeError::UnexpectedTagName),
+        })?;
+        Ok(Self { days })
     }
 }
 impl SerializeContent for Delete {
@@ -5343,6 +5432,9 @@ impl SerializeContent for LifecycleExpiration {
         if let Some(ref val) = self.days {
             s.content("Days", val)?;
         }
+        if let Some(ref val) = self.expired_object_all_versions {
+            s.content("ExpiredObjectAllVersions", val)?;
+        }
         if let Some(ref val) = self.expired_object_delete_marker {
             s.content("ExpiredObjectDeleteMarker", val)?;
         }
@@ -5354,6 +5446,7 @@ impl<'xml> DeserializeContent<'xml> for LifecycleExpiration {
     fn deserialize_content(d: &mut Deserializer<'xml>) -> DeResult<Self> {
         let mut date: Option<Date> = None;
         let mut days: Option<Days> = None;
+        let mut expired_object_all_versions: Option<ExpiredObjectAllVersions> = None;
         let mut expired_object_delete_marker: Option<ExpiredObjectDeleteMarker> = None;
         d.for_each_element(|d, x| match x {
             b"Date" => {
@@ -5370,6 +5463,13 @@ impl<'xml> DeserializeContent<'xml> for LifecycleExpiration {
                 days = Some(d.content()?);
                 Ok(())
             }
+            b"ExpiredObjectAllVersions" => {
+                if expired_object_all_versions.is_some() {
+                    return Err(DeError::DuplicateField);
+                }
+                expired_object_all_versions = Some(d.content()?);
+                Ok(())
+            }
             b"ExpiredObjectDeleteMarker" => {
                 if expired_object_delete_marker.is_some() {
                     return Err(DeError::DuplicateField);
@@ -5382,6 +5482,7 @@ impl<'xml> DeserializeContent<'xml> for LifecycleExpiration {
         Ok(Self {
             date,
             days,
+            expired_object_all_versions,
             expired_object_delete_marker,
         })
     }
@@ -5390,6 +5491,9 @@ impl SerializeContent for LifecycleRule {
     fn serialize_content<W: Write>(&self, s: &mut Serializer<W>) -> SerResult {
         if let Some(ref val) = self.abort_incomplete_multipart_upload {
             s.content("AbortIncompleteMultipartUpload", val)?;
+        }
+        if let Some(ref val) = self.del_marker_expiration {
+            s.content("DelMarkerExpiration", val)?;
         }
         if let Some(ref val) = self.expiration {
             s.content("Expiration", val)?;
@@ -5420,6 +5524,7 @@ impl SerializeContent for LifecycleRule {
 impl<'xml> DeserializeContent<'xml> for LifecycleRule {
     fn deserialize_content(d: &mut Deserializer<'xml>) -> DeResult<Self> {
         let mut abort_incomplete_multipart_upload: Option<AbortIncompleteMultipartUpload> = None;
+        let mut del_marker_expiration: Option<DelMarkerExpiration> = None;
         let mut expiration: Option<LifecycleExpiration> = None;
         let mut filter: Option<LifecycleRuleFilter> = None;
         let mut id: Option<ID> = None;
@@ -5434,6 +5539,13 @@ impl<'xml> DeserializeContent<'xml> for LifecycleRule {
                     return Err(DeError::DuplicateField);
                 }
                 abort_incomplete_multipart_upload = Some(d.content()?);
+                Ok(())
+            }
+            b"DelMarkerExpiration" => {
+                if del_marker_expiration.is_some() {
+                    return Err(DeError::DuplicateField);
+                }
+                del_marker_expiration = Some(d.content()?);
                 Ok(())
             }
             b"Expiration" => {
@@ -5492,6 +5604,7 @@ impl<'xml> DeserializeContent<'xml> for LifecycleRule {
         })?;
         Ok(Self {
             abort_incomplete_multipart_upload,
+            del_marker_expiration,
             expiration,
             filter,
             id,
@@ -5947,6 +6060,45 @@ impl<'xml> DeserializeContent<'xml> for ListBucketsOutput {
         })
     }
 }
+impl SerializeContent for ListDirectoryBucketsOutput {
+    fn serialize_content<W: Write>(&self, s: &mut Serializer<W>) -> SerResult {
+        if let Some(iter) = &self.buckets {
+            s.list("Buckets", "Bucket", iter)?;
+        }
+        if let Some(ref val) = self.continuation_token {
+            s.content("ContinuationToken", val)?;
+        }
+        Ok(())
+    }
+}
+
+impl<'xml> DeserializeContent<'xml> for ListDirectoryBucketsOutput {
+    fn deserialize_content(d: &mut Deserializer<'xml>) -> DeResult<Self> {
+        let mut buckets: Option<Buckets> = None;
+        let mut continuation_token: Option<DirectoryBucketToken> = None;
+        d.for_each_element(|d, x| match x {
+            b"Buckets" => {
+                if buckets.is_some() {
+                    return Err(DeError::DuplicateField);
+                }
+                buckets = Some(d.list_content("Bucket")?);
+                Ok(())
+            }
+            b"ContinuationToken" => {
+                if continuation_token.is_some() {
+                    return Err(DeError::DuplicateField);
+                }
+                continuation_token = Some(d.content()?);
+                Ok(())
+            }
+            _ => Err(DeError::UnexpectedTagName),
+        })?;
+        Ok(Self {
+            buckets,
+            continuation_token,
+        })
+    }
+}
 impl SerializeContent for ListMultipartUploadsOutput {
     fn serialize_content<W: Write>(&self, s: &mut Serializer<W>) -> SerResult {
         if let Some(ref val) = self.bucket {
@@ -6036,20 +6188,11 @@ impl SerializeContent for ListObjectVersionsOutput {
 
 impl SerializeContent for ListObjectsOutput {
     fn serialize_content<W: Write>(&self, s: &mut Serializer<W>) -> SerResult {
-        if let Some(iter) = &self.common_prefixes {
-            s.flattened_list("CommonPrefixes", iter)?;
+        if let Some(ref val) = self.name {
+            s.content("Name", val)?;
         }
-        if let Some(iter) = &self.contents {
-            s.flattened_list("Contents", iter)?;
-        }
-        if let Some(ref val) = self.delimiter {
-            s.content("Delimiter", val)?;
-        }
-        if let Some(ref val) = self.encoding_type {
-            s.content("EncodingType", val)?;
-        }
-        if let Some(ref val) = self.is_truncated {
-            s.content("IsTruncated", val)?;
+        if let Some(ref val) = self.prefix {
+            s.content("Prefix", val)?;
         }
         if let Some(ref val) = self.marker {
             s.content("Marker", val)?;
@@ -6057,14 +6200,23 @@ impl SerializeContent for ListObjectsOutput {
         if let Some(ref val) = self.max_keys {
             s.content("MaxKeys", val)?;
         }
-        if let Some(ref val) = self.name {
-            s.content("Name", val)?;
+        if let Some(ref val) = self.is_truncated {
+            s.content("IsTruncated", val)?;
+        }
+        if let Some(iter) = &self.contents {
+            s.flattened_list("Contents", iter)?;
+        }
+        if let Some(iter) = &self.common_prefixes {
+            s.flattened_list("CommonPrefixes", iter)?;
+        }
+        if let Some(ref val) = self.delimiter {
+            s.content("Delimiter", val)?;
         }
         if let Some(ref val) = self.next_marker {
             s.content("NextMarker", val)?;
         }
-        if let Some(ref val) = self.prefix {
-            s.content("Prefix", val)?;
+        if let Some(ref val) = self.encoding_type {
+            s.content("EncodingType", val)?;
         }
         Ok(())
     }
@@ -6072,38 +6224,38 @@ impl SerializeContent for ListObjectsOutput {
 
 impl SerializeContent for ListObjectsV2Output {
     fn serialize_content<W: Write>(&self, s: &mut Serializer<W>) -> SerResult {
-        if let Some(iter) = &self.common_prefixes {
-            s.flattened_list("CommonPrefixes", iter)?;
+        if let Some(ref val) = self.name {
+            s.content("Name", val)?;
+        }
+        if let Some(ref val) = self.prefix {
+            s.content("Prefix", val)?;
+        }
+        if let Some(ref val) = self.max_keys {
+            s.content("MaxKeys", val)?;
+        }
+        if let Some(ref val) = self.key_count {
+            s.content("KeyCount", val)?;
+        }
+        if let Some(ref val) = self.continuation_token {
+            s.content("ContinuationToken", val)?;
+        }
+        if let Some(ref val) = self.is_truncated {
+            s.content("IsTruncated", val)?;
+        }
+        if let Some(ref val) = self.next_continuation_token {
+            s.content("NextContinuationToken", val)?;
         }
         if let Some(iter) = &self.contents {
             s.flattened_list("Contents", iter)?;
         }
-        if let Some(ref val) = self.continuation_token {
-            s.content("ContinuationToken", val)?;
+        if let Some(iter) = &self.common_prefixes {
+            s.flattened_list("CommonPrefixes", iter)?;
         }
         if let Some(ref val) = self.delimiter {
             s.content("Delimiter", val)?;
         }
         if let Some(ref val) = self.encoding_type {
             s.content("EncodingType", val)?;
-        }
-        if let Some(ref val) = self.is_truncated {
-            s.content("IsTruncated", val)?;
-        }
-        if let Some(ref val) = self.key_count {
-            s.content("KeyCount", val)?;
-        }
-        if let Some(ref val) = self.max_keys {
-            s.content("MaxKeys", val)?;
-        }
-        if let Some(ref val) = self.name {
-            s.content("Name", val)?;
-        }
-        if let Some(ref val) = self.next_continuation_token {
-            s.content("NextContinuationToken", val)?;
-        }
-        if let Some(ref val) = self.prefix {
-            s.content("Prefix", val)?;
         }
         if let Some(ref val) = self.start_after {
             s.content("StartAfter", val)?;
@@ -9423,6 +9575,61 @@ impl<'xml> DeserializeContent<'xml> for ServerSideEncryptionRule {
         Ok(Self {
             apply_server_side_encryption_by_default,
             bucket_key_enabled,
+        })
+    }
+}
+impl SerializeContent for SessionCredentials {
+    fn serialize_content<W: Write>(&self, s: &mut Serializer<W>) -> SerResult {
+        s.content("AccessKeyId", &self.access_key_id)?;
+        s.timestamp("Expiration", &self.expiration, TimestampFormat::DateTime)?;
+        s.content("SecretAccessKey", &self.secret_access_key)?;
+        s.content("SessionToken", &self.session_token)?;
+        Ok(())
+    }
+}
+
+impl<'xml> DeserializeContent<'xml> for SessionCredentials {
+    fn deserialize_content(d: &mut Deserializer<'xml>) -> DeResult<Self> {
+        let mut access_key_id: Option<AccessKeyIdValue> = None;
+        let mut expiration: Option<SessionExpiration> = None;
+        let mut secret_access_key: Option<SessionCredentialValue> = None;
+        let mut session_token: Option<SessionCredentialValue> = None;
+        d.for_each_element(|d, x| match x {
+            b"AccessKeyId" => {
+                if access_key_id.is_some() {
+                    return Err(DeError::DuplicateField);
+                }
+                access_key_id = Some(d.content()?);
+                Ok(())
+            }
+            b"Expiration" => {
+                if expiration.is_some() {
+                    return Err(DeError::DuplicateField);
+                }
+                expiration = Some(d.timestamp(TimestampFormat::DateTime)?);
+                Ok(())
+            }
+            b"SecretAccessKey" => {
+                if secret_access_key.is_some() {
+                    return Err(DeError::DuplicateField);
+                }
+                secret_access_key = Some(d.content()?);
+                Ok(())
+            }
+            b"SessionToken" => {
+                if session_token.is_some() {
+                    return Err(DeError::DuplicateField);
+                }
+                session_token = Some(d.content()?);
+                Ok(())
+            }
+            _ => Err(DeError::UnexpectedTagName),
+        })?;
+        Ok(Self {
+            access_key_id: access_key_id.ok_or(DeError::MissingField)?,
+            expiration: expiration.ok_or(DeError::MissingField)?,
+            secret_access_key: secret_access_key.ok_or(DeError::MissingField)?,
+            session_token: session_token.ok_or(DeError::MissingField)?,
         })
     }
 }

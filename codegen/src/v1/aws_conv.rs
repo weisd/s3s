@@ -21,6 +21,9 @@ pub fn codegen(ops: &Operations, rust_types: &RustTypes) {
 
     for (name, rust_type) in rust_types {
         match name.as_str() {
+            // PostObject is a synthetic API in s3s; aws-sdk-s3 has no corresponding types.
+            "PostObjectInput" => continue,
+            "PostObjectOutput" => continue,
             "SelectObjectContentRequest" => continue,
             "SelectObjectContentInput" => continue,
             "AssumeRoleOutput" => continue,
@@ -45,7 +48,11 @@ pub fn codegen(ops: &Operations, rust_types: &RustTypes) {
                     continue;
                 }
             }
-            rust::Type::StructEnum(_) => {}
+            rust::Type::StructEnum(ty) => {
+                if ty.is_custom_extension {
+                    continue;
+                }
+            }
         }
 
         let s3s_path = f!("s3s::dto::{name}");
@@ -264,17 +271,17 @@ fn aws_ty_path(name: &str, ops: &Operations, rust_types: &RustTypes) -> String {
     let aws_name = aws_ty_name(name);
 
     for suffix in ["Input", "Output", "Error"] {
-        if let Some(op_name) = name.strip_suffix(suffix) {
-            if ops.contains_key(op_name) {
-                return f!("aws_sdk_s3::operation::{}::{aws_name}", op_name.to_snake_case());
-            }
+        if let Some(op_name) = name.strip_suffix(suffix)
+            && ops.contains_key(op_name)
+        {
+            return f!("aws_sdk_s3::operation::{}::{aws_name}", op_name.to_snake_case());
         }
     }
 
-    if let Some(rust::Type::Struct(ty)) = rust_types.get(name) {
-        if ty.is_error_type {
-            return f!("aws_sdk_s3::types::error::{aws_name}");
-        }
+    if let Some(rust::Type::Struct(ty)) = rust_types.get(name)
+        && ty.is_error_type
+    {
+        return f!("aws_sdk_s3::types::error::{aws_name}");
     }
 
     f!("aws_sdk_s3::types::{aws_name}")
@@ -288,6 +295,7 @@ fn has_unconditional_builder(name: &str) -> bool {
     matches!(
         name,
         "AnalyticsExportDestination"
+            | "CreateSessionOutput"
             | "InventoryDestination"
             | "RoutingRule"
             | "MetadataTableConfiguration"

@@ -5,6 +5,7 @@
 
 use super::*;
 use crate::error::S3Result;
+use crate::post_policy::PostPolicy;
 
 use std::borrow::Cow;
 use std::convert::Infallible;
@@ -21,7 +22,7 @@ pub type AbortDate = Timestamp;
 /// wait before permanently removing all parts of the upload. For more information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/mpuoverview.html#mpu-abort-incomplete-mpu-lifecycle-config">
 /// Aborting Incomplete Multipart Uploads Using a Bucket Lifecycle Configuration</a> in
 /// the <i>Amazon S3 User Guide</i>.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AbortIncompleteMultipartUpload {
     /// <p>Specifies the number of days after which Amazon S3 aborts an incomplete multipart
     /// upload.</p>
@@ -38,7 +39,7 @@ impl fmt::Debug for AbortIncompleteMultipartUpload {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct AbortMultipartUploadInput {
     /// <p>The bucket name to which the upload was taking place. </p>
     /// <p>
@@ -122,7 +123,7 @@ pub type AbortRuleId = String;
 /// <p>Configures the transfer acceleration state for an Amazon S3 bucket. For more information, see
 /// <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/transfer-acceleration.html">Amazon S3
 /// Transfer Acceleration</a> in the <i>Amazon S3 User Guide</i>.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AccelerateConfiguration {
     /// <p>Specifies the transfer acceleration status of the bucket.</p>
     pub status: Option<BucketAccelerateStatus>,
@@ -163,7 +164,7 @@ impl fmt::Debug for AccessControlPolicy {
 }
 
 /// <p>A container for information about access control for replicas.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct AccessControlTranslation {
     /// <p>Specifies the replica ownership. For default and valid values, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/RESTBucketPUTreplication.html">PUT bucket
     /// replication</a> in the <i>Amazon S3 API Reference</i>.</p>
@@ -207,7 +208,7 @@ pub type AllowedOrigins = List<AllowedOrigin>;
 /// <p>A conjunction (logical AND) of predicates, which is used in evaluating a metrics filter.
 /// The operator must have at least two predicates in any combination, and an object must match
 /// all of the predicates for the filter to apply.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AnalyticsAndOperator {
     /// <p>The prefix to use when evaluating an AND predicate: The prefix that an object must have
     /// to be included in the metrics results.</p>
@@ -231,7 +232,7 @@ impl fmt::Debug for AnalyticsAndOperator {
 
 /// <p>Specifies the configuration and any analyses for the analytics filter of an Amazon S3
 /// bucket.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnalyticsConfiguration {
     /// <p>The filter used to describe a set of objects for analyses. A filter must have exactly
     /// one prefix, one tag, or one conjunction (AnalyticsAndOperator). If no filter is provided,
@@ -256,10 +257,20 @@ impl fmt::Debug for AnalyticsConfiguration {
     }
 }
 
+impl Default for AnalyticsConfiguration {
+    fn default() -> Self {
+        Self {
+            filter: None,
+            id: default(),
+            storage_class_analysis: default(),
+        }
+    }
+}
+
 pub type AnalyticsConfigurationList = List<AnalyticsConfiguration>;
 
 /// <p>Where to publish the analytics results.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnalyticsExportDestination {
     /// <p>A destination signifying output to an S3 bucket.</p>
     pub s3_bucket_destination: AnalyticsS3BucketDestination,
@@ -276,8 +287,9 @@ impl fmt::Debug for AnalyticsExportDestination {
 /// <p>The filter used to describe a set of objects for analyses. A filter must have exactly
 /// one prefix, one tag, or one conjunction (AnalyticsAndOperator). If no filter is provided,
 /// all objects will be considered in any analysis.</p>
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
+#[serde(rename_all = "PascalCase")]
 pub enum AnalyticsFilter {
     /// <p>A conjunction (logical AND) of predicates, which is used in evaluating an analytics
     /// filter. The operator must have at least two predicates.</p>
@@ -291,7 +303,7 @@ pub enum AnalyticsFilter {
 pub type AnalyticsId = String;
 
 /// <p>Contains information about where to publish the analytics results.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnalyticsS3BucketDestination {
     /// <p>The Amazon Resource Name (ARN) of the bucket to which data is exported.</p>
     pub bucket: BucketName,
@@ -323,7 +335,7 @@ impl fmt::Debug for AnalyticsS3BucketDestination {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AnalyticsS3ExportFileFormat(Cow<'static, str>);
 
 impl AnalyticsS3ExportFileFormat {
@@ -459,7 +471,7 @@ pub type AssumedRoleIdType = String;
 
 /// <p>The identifiers for the temporary security credentials that the operation
 /// returns.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct AssumedRoleUser {
     /// <p>The ARN of the temporary security credentials that are returned from the <a>AssumeRole</a> action. For more information about ARNs and how to use them in
     /// policies, see <a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_identifiers.html">IAM Identifiers</a> in the
@@ -509,7 +521,7 @@ impl fmt::Debug for Bucket {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BucketAccelerateStatus(Cow<'static, str>);
 
 impl BucketAccelerateStatus {
@@ -620,7 +632,7 @@ impl FromStr for BucketCannedACL {
 /// <note>
 /// <p>This functionality is only supported by directory buckets.</p>
 /// </note>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct BucketInfo {
     /// <p>The number of Zone (Availability Zone or Local Zone) that's used for redundancy for the bucket.</p>
     pub data_redundancy: Option<DataRedundancy>,
@@ -646,7 +658,7 @@ pub type BucketKeyEnabled = bool;
 /// <p>Specifies the lifecycle configuration for objects in an Amazon S3 bucket. For more
 /// information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/object-lifecycle-mgmt.html">Object Lifecycle Management</a>
 /// in the <i>Amazon S3 User Guide</i>.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct BucketLifecycleConfiguration {
     /// <p>A lifecycle rule for individual objects in an Amazon S3 bucket.</p>
     pub rules: LifecycleRules,
@@ -660,7 +672,7 @@ impl fmt::Debug for BucketLifecycleConfiguration {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BucketLocationConstraint(Cow<'static, str>);
 
 impl BucketLocationConstraint {
@@ -822,7 +834,7 @@ pub type BucketName = String;
 
 pub type BucketRegion = String;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BucketType(Cow<'static, str>);
 
 impl BucketType {
@@ -858,7 +870,7 @@ impl FromStr for BucketType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BucketVersioningStatus(Cow<'static, str>);
 
 impl BucketVersioningStatus {
@@ -910,7 +922,7 @@ pub type BytesScanned = i64;
 /// information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/cors.html">Enabling
 /// Cross-Origin Resource Sharing</a> in the
 /// <i>Amazon S3 User Guide</i>.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct CORSConfiguration {
     /// <p>A set of origins and methods (cross-origin access that you want to allow). You can add
     /// up to 100 rules to the configuration.</p>
@@ -926,7 +938,7 @@ impl fmt::Debug for CORSConfiguration {
 }
 
 /// <p>Specifies a cross-origin access rule for an Amazon S3 bucket.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct CORSRule {
     /// <p>Headers that are specified in the <code>Access-Control-Request-Headers</code> header.
     /// These headers are allowed in a preflight OPTIONS request. In response to any preflight
@@ -1321,7 +1333,7 @@ impl fmt::Debug for CommonPrefix {
 
 pub type CommonPrefixList = List<CommonPrefix>;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct CompleteMultipartUploadInput {
     /// <p>Name of the bucket to which the multipart upload was initiated.</p>
     /// <p>
@@ -1770,7 +1782,7 @@ impl FromStr for CompressionType {
 /// apply. For example, 1. If request is for pages in the <code>/docs</code> folder, redirect
 /// to the <code>/documents</code> folder. 2. If request results in HTTP error 4xx, redirect
 /// request to another host where you might process the error.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Condition {
     /// <p>The HTTP error code when the redirect is applied. In the event of an error, if the error
     /// code equals this value, then the specified redirect is applied. Required when parent
@@ -2759,11 +2771,11 @@ impl fmt::Debug for CopyPartResult {
     }
 }
 
-pub type CopySourceIfMatch = String;
+pub type CopySourceIfMatch = ETagCondition;
 
 pub type CopySourceIfModifiedSince = Timestamp;
 
-pub type CopySourceIfNoneMatch = String;
+pub type CopySourceIfNoneMatch = ETagCondition;
 
 pub type CopySourceIfUnmodifiedSince = Timestamp;
 
@@ -2778,7 +2790,7 @@ pub type CopySourceSSECustomerKeyMD5 = String;
 pub type CopySourceVersionId = String;
 
 /// <p>The configuration information for the bucket.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct CreateBucketConfiguration {
     /// <p>Specifies the information about the bucket that will be created.</p>
     /// <note>
@@ -2825,7 +2837,7 @@ impl fmt::Debug for CreateBucketConfiguration {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct CreateBucketInput {
     /// <p>The canned ACL to apply to the bucket.</p>
     /// <note>
@@ -2999,7 +3011,7 @@ impl fmt::Debug for CreateBucketOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct CreateMultipartUploadInput {
     /// <p>The canned ACL to apply to the object. Amazon S3 supports a set of predefined ACLs, known as
     /// <i>canned ACLs</i>. Each canned ACL has a predefined set of grantees and
@@ -3695,6 +3707,131 @@ impl fmt::Debug for CreateMultipartUploadOutput {
     }
 }
 
+#[derive(Clone, Default, PartialEq)]
+pub struct CreateSessionInput {
+    /// <p>The name of the bucket that you create a session for.</p>
+    pub bucket: BucketName,
+    /// <p>Specifies whether Amazon S3 should use an S3 Bucket Key for object encryption with
+    /// server-side encryption using KMS keys (SSE-KMS).</p>
+    /// <p>S3 Bucket Keys are always enabled for <code>GET</code> and <code>PUT</code> operations in a directory bucket and can’t be disabled. S3 Bucket Keys aren't supported, when you copy SSE-KMS encrypted objects from general purpose buckets  
+    /// to directory buckets, from directory buckets to general purpose buckets, or between directory buckets, through <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_CopyObject.html">CopyObject</a>, <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_UploadPartCopy.html">UploadPartCopy</a>, <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/directory-buckets-objects-Batch-Ops">the Copy operation in Batch Operations</a>, or
+    /// <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/create-import-job">the import jobs</a>. In this case, Amazon S3 makes a call to KMS every time a copy request is made for a KMS-encrypted object.</p>
+    pub bucket_key_enabled: Option<BucketKeyEnabled>,
+    /// <p>Specifies the Amazon Web Services KMS Encryption Context as an additional encryption context to use for object encryption. The value of
+    /// this header is a Base64 encoded string of a UTF-8 encoded JSON, which contains the encryption context as key-value pairs.
+    /// This value is stored as object metadata and automatically gets passed on
+    /// to Amazon Web Services KMS for future <code>GetObject</code> operations on
+    /// this object.</p>
+    /// <p>
+    /// <b>General purpose buckets</b> - This value must be explicitly added during <code>CopyObject</code> operations if you want an additional encryption context for your object. For more information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html#encryption-context">Encryption context</a> in the <i>Amazon S3 User Guide</i>.</p>
+    /// <p>
+    /// <b>Directory buckets</b> - You can optionally provide an explicit encryption context value. The value must match the default encryption context - the bucket Amazon Resource Name (ARN). An additional encryption context value is not supported. </p>
+    pub ssekms_encryption_context: Option<SSEKMSEncryptionContext>,
+    /// <p>If you specify <code>x-amz-server-side-encryption</code> with <code>aws:kms</code>, you must specify the <code>
+    /// x-amz-server-side-encryption-aws-kms-key-id</code> header with the ID (Key ID or Key ARN) of the KMS
+    /// symmetric encryption customer managed key to use. Otherwise, you get an HTTP <code>400 Bad Request</code> error. Only use the key ID or key ARN. The key alias format of the KMS key isn't supported. Also, if the KMS key doesn't exist in the same
+    /// account that't issuing the command, you must use the full Key ARN not the Key ID. </p>
+    /// <p>Your SSE-KMS configuration can only support 1 <a href="https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html#customer-cmk">customer managed key</a> per directory bucket's lifetime.
+    /// The <a href="https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html#aws-managed-cmk">Amazon Web Services managed key</a> (<code>aws/s3</code>) isn't supported.
+    /// </p>
+    pub ssekms_key_id: Option<SSEKMSKeyId>,
+    /// <p>The server-side encryption algorithm to use when you store objects in the directory bucket.</p>
+    /// <p>For directory buckets, there are only two supported options for server-side encryption: server-side encryption with Amazon S3 managed keys (SSE-S3) (<code>AES256</code>) and server-side encryption with KMS keys (SSE-KMS) (<code>aws:kms</code>). By default, Amazon S3 encrypts data with SSE-S3.
+    /// For more
+    /// information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/serv-side-encryption.html">Protecting data with server-side encryption</a> in the <i>Amazon S3 User Guide</i>.</p>
+    pub server_side_encryption: Option<ServerSideEncryption>,
+    /// <p>Specifies the mode of the session that will be created, either <code>ReadWrite</code> or
+    /// <code>ReadOnly</code>. By default, a <code>ReadWrite</code> session is created. A
+    /// <code>ReadWrite</code> session is capable of executing all the Zonal endpoint API operations on a
+    /// directory bucket. A <code>ReadOnly</code> session is constrained to execute the following
+    /// Zonal endpoint API operations: <code>GetObject</code>, <code>HeadObject</code>, <code>ListObjectsV2</code>,
+    /// <code>GetObjectAttributes</code>, <code>ListParts</code>, and
+    /// <code>ListMultipartUploads</code>.</p>
+    pub session_mode: Option<SessionMode>,
+}
+
+impl fmt::Debug for CreateSessionInput {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("CreateSessionInput");
+        d.field("bucket", &self.bucket);
+        if let Some(ref val) = self.bucket_key_enabled {
+            d.field("bucket_key_enabled", val);
+        }
+        if let Some(ref val) = self.ssekms_encryption_context {
+            d.field("ssekms_encryption_context", val);
+        }
+        if let Some(ref val) = self.ssekms_key_id {
+            d.field("ssekms_key_id", val);
+        }
+        if let Some(ref val) = self.server_side_encryption {
+            d.field("server_side_encryption", val);
+        }
+        if let Some(ref val) = self.session_mode {
+            d.field("session_mode", val);
+        }
+        d.finish_non_exhaustive()
+    }
+}
+
+impl CreateSessionInput {
+    #[must_use]
+    pub fn builder() -> builders::CreateSessionInputBuilder {
+        default()
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub struct CreateSessionOutput {
+    /// <p>Indicates whether to use an S3 Bucket Key for server-side encryption
+    /// with KMS keys (SSE-KMS).</p>
+    pub bucket_key_enabled: Option<BucketKeyEnabled>,
+    /// <p>The established temporary security credentials for the created session.</p>
+    pub credentials: SessionCredentials,
+    /// <p>If present, indicates the Amazon Web Services KMS Encryption Context to use for object encryption. The value of
+    /// this header is a Base64 encoded string of a UTF-8 encoded JSON, which contains the encryption context as key-value pairs.
+    /// This value is stored as object metadata and automatically gets
+    /// passed on to Amazon Web Services KMS for future <code>GetObject</code>
+    /// operations on this object.</p>
+    pub ssekms_encryption_context: Option<SSEKMSEncryptionContext>,
+    /// <p>If you specify <code>x-amz-server-side-encryption</code> with <code>aws:kms</code>, this header indicates the ID of the KMS
+    /// symmetric encryption customer managed key that was used for object encryption.</p>
+    pub ssekms_key_id: Option<SSEKMSKeyId>,
+    /// <p>The server-side encryption algorithm used when you store objects in the directory bucket.</p>
+    pub server_side_encryption: Option<ServerSideEncryption>,
+}
+
+impl fmt::Debug for CreateSessionOutput {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("CreateSessionOutput");
+        if let Some(ref val) = self.bucket_key_enabled {
+            d.field("bucket_key_enabled", val);
+        }
+        d.field("credentials", &self.credentials);
+        if let Some(ref val) = self.ssekms_encryption_context {
+            d.field("ssekms_encryption_context", val);
+        }
+        if let Some(ref val) = self.ssekms_key_id {
+            d.field("ssekms_key_id", val);
+        }
+        if let Some(ref val) = self.server_side_encryption {
+            d.field("server_side_encryption", val);
+        }
+        d.finish_non_exhaustive()
+    }
+}
+
+impl Default for CreateSessionOutput {
+    fn default() -> Self {
+        Self {
+            bucket_key_enabled: None,
+            credentials: default(),
+            ssekms_encryption_context: None,
+            ssekms_key_id: None,
+            server_side_encryption: None,
+        }
+    }
+}
+
 pub type CreationDate = Timestamp;
 
 /// <p>Amazon Web Services credentials for API authentication.</p>
@@ -3722,7 +3859,7 @@ impl fmt::Debug for Credentials {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DataRedundancy(Cow<'static, str>);
 
 impl DataRedundancy {
@@ -3783,7 +3920,7 @@ pub type DaysAfterInitiation = i32;
 /// </li>
 /// </ul>
 /// </note>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct DefaultRetention {
     /// <p>The number of days that you want to specify for the default retention period. Must be
     /// used with <code>Mode</code>.</p>
@@ -3840,7 +3977,7 @@ impl fmt::Debug for Delete {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct DeleteBucketAnalyticsConfigurationInput {
     /// <p>The name of the bucket from which an analytics configuration is deleted.</p>
     pub bucket: BucketName,
@@ -3879,7 +4016,7 @@ impl fmt::Debug for DeleteBucketAnalyticsConfigurationOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct DeleteBucketCorsInput {
     /// <p>Specifies the bucket whose <code>cors</code> configuration is being deleted.</p>
     pub bucket: BucketName,
@@ -3915,7 +4052,7 @@ impl fmt::Debug for DeleteBucketCorsOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct DeleteBucketEncryptionInput {
     /// <p>The name of the bucket containing the server-side encryption configuration to
     /// delete.</p>
@@ -3962,7 +4099,7 @@ impl fmt::Debug for DeleteBucketEncryptionOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct DeleteBucketInput {
     /// <p>Specifies the bucket being deleted.</p>
     /// <p>
@@ -3998,7 +4135,7 @@ impl DeleteBucketInput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct DeleteBucketIntelligentTieringConfigurationInput {
     /// <p>The name of the Amazon S3 bucket whose configuration you want to modify or retrieve.</p>
     pub bucket: BucketName,
@@ -4032,7 +4169,7 @@ impl fmt::Debug for DeleteBucketIntelligentTieringConfigurationOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct DeleteBucketInventoryConfigurationInput {
     /// <p>The name of the bucket containing the inventory configuration to delete.</p>
     pub bucket: BucketName,
@@ -4071,7 +4208,7 @@ impl fmt::Debug for DeleteBucketInventoryConfigurationOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct DeleteBucketLifecycleInput {
     /// <p>The bucket name of the lifecycle to delete.</p>
     pub bucket: BucketName,
@@ -4111,7 +4248,7 @@ impl fmt::Debug for DeleteBucketLifecycleOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct DeleteBucketMetadataTableConfigurationInput {
     /// <p>
     /// The general purpose bucket that you want to remove the metadata table configuration from.
@@ -4152,7 +4289,7 @@ impl fmt::Debug for DeleteBucketMetadataTableConfigurationOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct DeleteBucketMetricsConfigurationInput {
     /// <p>The name of the bucket containing the metrics configuration to delete.</p>
     pub bucket: BucketName,
@@ -4202,7 +4339,7 @@ impl fmt::Debug for DeleteBucketOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct DeleteBucketOwnershipControlsInput {
     /// <p>The Amazon S3 bucket whose <code>OwnershipControls</code> you want to delete. </p>
     pub bucket: BucketName,
@@ -4238,7 +4375,7 @@ impl fmt::Debug for DeleteBucketOwnershipControlsOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct DeleteBucketPolicyInput {
     /// <p>The bucket name.</p>
     /// <p>
@@ -4284,7 +4421,7 @@ impl fmt::Debug for DeleteBucketPolicyOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct DeleteBucketReplicationInput {
     /// <p> The bucket name. </p>
     pub bucket: BucketName,
@@ -4320,7 +4457,7 @@ impl fmt::Debug for DeleteBucketReplicationOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct DeleteBucketTaggingInput {
     /// <p>The bucket that has the tag set to be removed.</p>
     pub bucket: BucketName,
@@ -4356,7 +4493,7 @@ impl fmt::Debug for DeleteBucketTaggingOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct DeleteBucketWebsiteInput {
     /// <p>The bucket name for which you want to remove the website configuration. </p>
     pub bucket: BucketName,
@@ -4444,7 +4581,7 @@ impl fmt::Debug for DeleteMarkerEntry {
 /// <p>If you are using an earlier version of the replication configuration, Amazon S3 handles
 /// replication of delete markers differently. For more information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/replication-add-config.html#replication-backward-compat-considerations">Backward Compatibility</a>.</p>
 /// </note>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct DeleteMarkerReplication {
     /// <p>Indicates whether to replicate delete markers.</p>
     /// <note>
@@ -4463,7 +4600,7 @@ impl fmt::Debug for DeleteMarkerReplication {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeleteMarkerReplicationStatus(Cow<'static, str>);
 
 impl DeleteMarkerReplicationStatus {
@@ -4505,7 +4642,7 @@ pub type DeleteMarkerVersionId = String;
 
 pub type DeleteMarkers = List<DeleteMarkerEntry>;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct DeleteObjectInput {
     /// <p>The bucket name of the bucket containing the object. </p>
     /// <p>
@@ -4654,7 +4791,7 @@ impl fmt::Debug for DeleteObjectOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct DeleteObjectTaggingInput {
     /// <p>The bucket name containing the objects from which to remove the tags. </p>
     /// <p>
@@ -4860,7 +4997,7 @@ impl fmt::Debug for DeleteObjectsOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct DeletePublicAccessBlockInput {
     /// <p>The Amazon S3 bucket whose <code>PublicAccessBlock</code> configuration you want to delete.
     /// </p>
@@ -4951,7 +5088,7 @@ pub type Description = String;
 
 /// <p>Specifies information about where to publish analysis or configuration results for an
 /// Amazon S3 bucket and S3 Replication Time Control (S3 RTC).</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Destination {
     /// <p>Specify this only in a cross-account scenario (where source and destination bucket
     /// owners are not the same), and you want to change replica ownership to the Amazon Web Services account
@@ -5108,7 +5245,7 @@ impl fmt::Debug for Encryption {
 /// key within the requester’s account. This behavior can result in data that's encrypted
 /// with a KMS key that belongs to the requester, and not the bucket owner.</p>
 /// </note>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct EncryptionConfiguration {
     /// <p>Specifies the ID (Key ARN or Alias ARN) of the customer managed Amazon Web Services KMS key stored in
     /// Amazon Web Services Key Management Service (KMS) for the destination bucket. Amazon S3 uses this key to
@@ -7187,7 +7324,7 @@ impl fmt::Debug for ErrorDetails {
 }
 
 /// <p>The error information.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ErrorDocument {
     /// <p>The object key name to use when a 4XX class error occurs.</p>
     /// <important>
@@ -7211,7 +7348,7 @@ pub type ErrorMessage = String;
 pub type Errors = List<Error>;
 
 /// <p>A container for specifying the configuration for Amazon EventBridge.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct EventBridgeConfiguration {}
 
 impl fmt::Debug for EventBridgeConfiguration {
@@ -7228,7 +7365,7 @@ pub type EventList = List<Event>;
 /// <p>This parameter is no longer supported. To replicate existing objects, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-batch-replication-batch.html">Replicating existing objects with S3 Batch Replication</a> in the
 /// <i>Amazon S3 User Guide</i>.</p>
 /// </note>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExistingObjectReplication {
     /// <p>Specifies whether Amazon S3 replicates existing source bucket objects. </p>
     pub status: ExistingObjectReplicationStatus,
@@ -7242,7 +7379,7 @@ impl fmt::Debug for ExistingObjectReplication {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExistingObjectReplicationStatus(Cow<'static, str>);
 
 impl ExistingObjectReplicationStatus {
@@ -7282,7 +7419,7 @@ impl FromStr for ExistingObjectReplicationStatus {
 
 pub type Expiration = String;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExpirationStatus(Cow<'static, str>);
 
 impl ExpirationStatus {
@@ -7418,7 +7555,7 @@ impl FromStr for FileHeaderInfo {
 /// <code>engineering/</code>. Then, you can use <code>FilterRule</code> to find objects in
 /// a bucket with key names that have the same prefix. A suffix is similar to a prefix, but it
 /// is at the end of the object key name instead of at the beginning.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct FilterRule {
     /// <p>The object key name prefix or suffix identifying one or more objects to which the
     /// filtering rule applies. The maximum length is 1,024 characters. Overlapping prefixes and
@@ -7446,7 +7583,7 @@ impl fmt::Debug for FilterRule {
 /// rule.</p>
 pub type FilterRuleList = List<FilterRule>;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FilterRuleName(Cow<'static, str>);
 
 impl FilterRuleName {
@@ -7486,7 +7623,7 @@ impl FromStr for FilterRuleName {
 
 pub type FilterRuleValue = String;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetBucketAccelerateConfigurationInput {
     /// <p>The name of the bucket for which the accelerate configuration is retrieved.</p>
     pub bucket: BucketName,
@@ -7536,7 +7673,7 @@ impl fmt::Debug for GetBucketAccelerateConfigurationOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetBucketAclInput {
     /// <p>Specifies the S3 bucket whose ACL is being requested.</p>
     /// <p>When you use this API operation with an access point, provide the alias of the access point in place of the bucket name.</p>
@@ -7588,7 +7725,7 @@ impl fmt::Debug for GetBucketAclOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetBucketAnalyticsConfigurationInput {
     /// <p>The name of the bucket from which an analytics configuration is retrieved.</p>
     pub bucket: BucketName,
@@ -7633,7 +7770,7 @@ impl fmt::Debug for GetBucketAnalyticsConfigurationOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetBucketCorsInput {
     /// <p>The bucket name for which to get the cors configuration.</p>
     /// <p>When you use this API operation with an access point, provide the alias of the access point in place of the bucket name.</p>
@@ -7681,7 +7818,7 @@ impl fmt::Debug for GetBucketCorsOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetBucketEncryptionInput {
     /// <p>The name of the bucket from which the server-side encryption configuration is
     /// retrieved.</p>
@@ -7733,7 +7870,7 @@ impl fmt::Debug for GetBucketEncryptionOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetBucketIntelligentTieringConfigurationInput {
     /// <p>The name of the Amazon S3 bucket whose configuration you want to modify or retrieve.</p>
     pub bucket: BucketName,
@@ -7773,7 +7910,7 @@ impl fmt::Debug for GetBucketIntelligentTieringConfigurationOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetBucketInventoryConfigurationInput {
     /// <p>The name of the bucket containing the inventory configuration to retrieve.</p>
     pub bucket: BucketName,
@@ -7818,7 +7955,7 @@ impl fmt::Debug for GetBucketInventoryConfigurationOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetBucketLifecycleConfigurationInput {
     /// <p>The name of the bucket for which to get the lifecycle information.</p>
     pub bucket: BucketName,
@@ -7891,7 +8028,7 @@ impl fmt::Debug for GetBucketLifecycleConfigurationOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetBucketLocationInput {
     /// <p>The name of the bucket for which to get the location.</p>
     /// <p>When you use this API operation with an access point, provide the alias of the access point in place of the bucket name.</p>
@@ -7941,7 +8078,7 @@ impl fmt::Debug for GetBucketLocationOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetBucketLoggingInput {
     /// <p>The bucket name for which to get the logging information.</p>
     pub bucket: BucketName,
@@ -7982,7 +8119,7 @@ impl fmt::Debug for GetBucketLoggingOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetBucketMetadataTableConfigurationInput {
     /// <p>
     /// The general purpose bucket that contains the metadata table configuration that you want to retrieve.
@@ -8080,7 +8217,7 @@ impl fmt::Debug for GetBucketMetadataTableConfigurationResult {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetBucketMetricsConfigurationInput {
     /// <p>The name of the bucket containing the metrics configuration to retrieve.</p>
     pub bucket: BucketName,
@@ -8126,7 +8263,7 @@ impl fmt::Debug for GetBucketMetricsConfigurationOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetBucketNotificationConfigurationInput {
     /// <p>The name of the bucket for which to get the notification configuration.</p>
     /// <p>When you use this API operation with an access point, provide the alias of the access point in place of the bucket name.</p>
@@ -8193,7 +8330,7 @@ impl fmt::Debug for GetBucketNotificationConfigurationOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetBucketOwnershipControlsInput {
     /// <p>The name of the Amazon S3 bucket whose <code>OwnershipControls</code> you want to retrieve.
     /// </p>
@@ -8237,7 +8374,7 @@ impl fmt::Debug for GetBucketOwnershipControlsOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetBucketPolicyInput {
     /// <p>The bucket name to get the bucket policy for.</p>
     /// <p>
@@ -8299,7 +8436,7 @@ impl fmt::Debug for GetBucketPolicyOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetBucketPolicyStatusInput {
     /// <p>The name of the Amazon S3 bucket whose policy status you want to retrieve.</p>
     pub bucket: BucketName,
@@ -8341,7 +8478,7 @@ impl fmt::Debug for GetBucketPolicyStatusOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetBucketReplicationInput {
     /// <p>The bucket name for which to get the replication information.</p>
     pub bucket: BucketName,
@@ -8382,7 +8519,7 @@ impl fmt::Debug for GetBucketReplicationOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetBucketRequestPaymentInput {
     /// <p>The name of the bucket for which to get the payment request configuration</p>
     pub bucket: BucketName,
@@ -8424,7 +8561,7 @@ impl fmt::Debug for GetBucketRequestPaymentOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetBucketTaggingInput {
     /// <p>The name of the bucket for which to get the tagging information.</p>
     pub bucket: BucketName,
@@ -8464,7 +8601,7 @@ impl fmt::Debug for GetBucketTaggingOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetBucketVersioningInput {
     /// <p>The name of the bucket for which to get the versioning information.</p>
     pub bucket: BucketName,
@@ -8513,7 +8650,7 @@ impl fmt::Debug for GetBucketVersioningOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetBucketWebsiteInput {
     /// <p>The bucket name for which to get the website configuration.</p>
     pub bucket: BucketName,
@@ -8572,7 +8709,7 @@ impl fmt::Debug for GetBucketWebsiteOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetObjectAclInput {
     /// <p>The bucket name that contains the object for which to get the ACL information. </p>
     /// <p>
@@ -8640,7 +8777,7 @@ impl fmt::Debug for GetObjectAclOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetObjectAttributesInput {
     /// <p>The name of the bucket that contains the object.</p>
     /// <p>
@@ -8881,7 +9018,7 @@ impl fmt::Debug for GetObjectAttributesParts {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetObjectInput {
     /// <p>The bucket name containing the object. </p>
     /// <p>
@@ -9161,7 +9298,7 @@ impl GetObjectInput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetObjectLegalHoldInput {
     /// <p>The bucket name containing the object whose legal hold status you want to retrieve. </p>
     /// <p>
@@ -9217,7 +9354,7 @@ impl fmt::Debug for GetObjectLegalHoldOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetObjectLockConfigurationInput {
     /// <p>The bucket whose Object Lock configuration you want to retrieve.</p>
     /// <p>
@@ -9564,7 +9701,7 @@ impl fmt::Debug for GetObjectOutput {
 
 pub type GetObjectResponseStatusCode = i32;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetObjectRetentionInput {
     /// <p>The bucket name containing the object whose retention settings you want to retrieve. </p>
     /// <p>
@@ -9620,7 +9757,7 @@ impl fmt::Debug for GetObjectRetentionOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetObjectTaggingInput {
     /// <p>The bucket name containing the object for which to get the tagging information. </p>
     /// <p>
@@ -9683,7 +9820,7 @@ impl fmt::Debug for GetObjectTaggingOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetObjectTorrentInput {
     /// <p>The name of the bucket containing the object for which to get the torrent files.</p>
     pub bucket: BucketName,
@@ -9736,7 +9873,7 @@ impl fmt::Debug for GetObjectTorrentOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct GetPublicAccessBlockInput {
     /// <p>The name of the Amazon S3 bucket whose <code>PublicAccessBlock</code> configuration you want
     /// to retrieve. </p>
@@ -9894,7 +10031,7 @@ impl fmt::Debug for Grantee {
 
 pub type Grants = List<Grant>;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct HeadBucketInput {
     /// <p>The bucket name.</p>
     /// <p>
@@ -9983,7 +10120,7 @@ impl fmt::Debug for HeadBucketOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct HeadObjectInput {
     /// <p>The name of the bucket that contains the object.</p>
     /// <p>
@@ -10555,7 +10692,7 @@ pub type HttpRedirectCode = String;
 
 pub type ID = String;
 
-pub type IfMatch = String;
+pub type IfMatch = ETagCondition;
 
 pub type IfMatchInitiatedTime = Timestamp;
 
@@ -10565,12 +10702,12 @@ pub type IfMatchSize = i64;
 
 pub type IfModifiedSince = Timestamp;
 
-pub type IfNoneMatch = String;
+pub type IfNoneMatch = ETagCondition;
 
 pub type IfUnmodifiedSince = Timestamp;
 
 /// <p>Container for the <code>Suffix</code> element.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct IndexDocument {
     /// <p>A suffix that is appended to a request that is for a directory on the website endpoint.
     /// (For example, if the suffix is <code>index.html</code> and you make a request to
@@ -10660,7 +10797,7 @@ impl fmt::Debug for InputSerialization {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IntelligentTieringAccessTier(Cow<'static, str>);
 
 impl IntelligentTieringAccessTier {
@@ -10700,7 +10837,7 @@ impl FromStr for IntelligentTieringAccessTier {
 
 /// <p>A container for specifying S3 Intelligent-Tiering filters. The filters determine the
 /// subset of objects to which the rule applies.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct IntelligentTieringAndOperator {
     /// <p>An object key name prefix that identifies the subset of objects to which the
     /// configuration applies.</p>
@@ -10727,7 +10864,7 @@ impl fmt::Debug for IntelligentTieringAndOperator {
 /// <p>For information about the S3 Intelligent-Tiering storage class, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/storage-class-intro.html#sc-dynamic-data-access">Storage class
 /// for automatically optimizing frequently and infrequently accessed
 /// objects</a>.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct IntelligentTieringConfiguration {
     /// <p>Specifies a bucket filter. The configuration only includes objects that meet the
     /// filter's criteria.</p>
@@ -10753,13 +10890,24 @@ impl fmt::Debug for IntelligentTieringConfiguration {
     }
 }
 
+impl Default for IntelligentTieringConfiguration {
+    fn default() -> Self {
+        Self {
+            filter: None,
+            id: default(),
+            status: String::new().into(),
+            tierings: default(),
+        }
+    }
+}
+
 pub type IntelligentTieringConfigurationList = List<IntelligentTieringConfiguration>;
 
 pub type IntelligentTieringDays = i32;
 
 /// <p>The <code>Filter</code> is used to identify objects that the S3 Intelligent-Tiering
 /// configuration applies to.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct IntelligentTieringFilter {
     /// <p>A conjunction (logical AND) of predicates, which is used in evaluating a metrics filter.
     /// The operator must have at least two predicates, and an object must match all of the
@@ -10794,7 +10942,7 @@ impl fmt::Debug for IntelligentTieringFilter {
 
 pub type IntelligentTieringId = String;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IntelligentTieringStatus(Cow<'static, str>);
 
 impl IntelligentTieringStatus {
@@ -10896,7 +11044,7 @@ impl fmt::Debug for InvalidWriteOffset {
 
 /// <p>Specifies the inventory configuration for an Amazon S3 bucket. For more information, see
 /// <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/RESTBucketGETInventoryConfig.html">GET Bucket inventory</a> in the <i>Amazon S3 API Reference</i>. </p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct InventoryConfiguration {
     /// <p>Contains information about where to publish the inventory results.</p>
     pub destination: InventoryDestination,
@@ -10939,10 +11087,24 @@ impl fmt::Debug for InventoryConfiguration {
     }
 }
 
+impl Default for InventoryConfiguration {
+    fn default() -> Self {
+        Self {
+            destination: default(),
+            filter: None,
+            id: default(),
+            included_object_versions: String::new().into(),
+            is_enabled: default(),
+            optional_fields: None,
+            schedule: default(),
+        }
+    }
+}
+
 pub type InventoryConfigurationList = List<InventoryConfiguration>;
 
 /// <p>Specifies the inventory configuration for an Amazon S3 bucket.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct InventoryDestination {
     /// <p>Contains the bucket name, file format, bucket owner (optional), and prefix (optional)
     /// where inventory results are published.</p>
@@ -10957,9 +11119,17 @@ impl fmt::Debug for InventoryDestination {
     }
 }
 
+impl Default for InventoryDestination {
+    fn default() -> Self {
+        Self {
+            s3_bucket_destination: default(),
+        }
+    }
+}
+
 /// <p>Contains the type of server-side encryption used to encrypt the inventory
 /// results.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct InventoryEncryption {
     /// <p>Specifies the use of SSE-KMS to encrypt delivered inventory reports.</p>
     pub ssekms: Option<SSEKMS>,
@@ -10982,7 +11152,7 @@ impl fmt::Debug for InventoryEncryption {
 
 /// <p>Specifies an inventory filter. The inventory only includes objects that meet the
 /// filter's criteria.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct InventoryFilter {
     /// <p>The prefix that an object must have to be included in the inventory results.</p>
     pub prefix: Prefix,
@@ -10996,7 +11166,7 @@ impl fmt::Debug for InventoryFilter {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InventoryFormat(Cow<'static, str>);
 
 impl InventoryFormat {
@@ -11036,7 +11206,7 @@ impl FromStr for InventoryFormat {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InventoryFrequency(Cow<'static, str>);
 
 impl InventoryFrequency {
@@ -11076,7 +11246,7 @@ impl FromStr for InventoryFrequency {
 
 pub type InventoryId = String;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InventoryIncludedObjectVersions(Cow<'static, str>);
 
 impl InventoryIncludedObjectVersions {
@@ -11114,7 +11284,7 @@ impl FromStr for InventoryIncludedObjectVersions {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InventoryOptionalField(Cow<'static, str>);
 
 impl InventoryOptionalField {
@@ -11182,7 +11352,7 @@ pub type InventoryOptionalFields = List<InventoryOptionalField>;
 
 /// <p>Contains the bucket name, file format, bucket owner (optional), and prefix (optional)
 /// where inventory results are published.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct InventoryS3BucketDestination {
     /// <p>The account ID that owns the destination S3 bucket. If no account ID is provided, the
     /// owner is not validated before exporting data. </p>
@@ -11221,8 +11391,20 @@ impl fmt::Debug for InventoryS3BucketDestination {
     }
 }
 
+impl Default for InventoryS3BucketDestination {
+    fn default() -> Self {
+        Self {
+            account_id: None,
+            bucket: default(),
+            encryption: None,
+            format: String::new().into(),
+            prefix: None,
+        }
+    }
+}
+
 /// <p>Specifies the schedule for generating inventory results.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct InventorySchedule {
     /// <p>Specifies how frequently inventory results are produced.</p>
     pub frequency: InventoryFrequency,
@@ -11233,6 +11415,14 @@ impl fmt::Debug for InventorySchedule {
         let mut d = f.debug_struct("InventorySchedule");
         d.field("frequency", &self.frequency);
         d.finish_non_exhaustive()
+    }
+}
+
+impl Default for InventorySchedule {
+    fn default() -> Self {
+        Self {
+            frequency: String::new().into(),
+        }
     }
 }
 
@@ -11330,7 +11520,7 @@ pub type KeyPrefixEquals = String;
 pub type LambdaFunctionArn = String;
 
 /// <p>A container for specifying the configuration for Lambda notifications.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct LambdaFunctionConfiguration {
     /// <p>The Amazon S3 bucket event for which to invoke the Lambda function. For more information,
     /// see <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/NotificationHowTo.html">Supported
@@ -11367,7 +11557,7 @@ pub type LastModifiedTime = Timestamp;
 /// <p>Container for the expiration for the lifecycle of the object.</p>
 /// <p>For more information see, <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lifecycle-mgmt.html">Managing your storage
 /// lifecycle</a> in the <i>Amazon S3 User Guide</i>.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct LifecycleExpiration {
     /// <p>Indicates at what date the object is to be moved or deleted. The date value must conform
     /// to the ISO 8601 format. The time is always midnight UTC.</p>
@@ -11408,7 +11598,7 @@ impl fmt::Debug for LifecycleExpiration {
 /// <p>A lifecycle rule for individual objects in an Amazon S3 bucket.</p>
 /// <p>For more information see, <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lifecycle-mgmt.html">Managing your storage
 /// lifecycle</a> in the <i>Amazon S3 User Guide</i>.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct LifecycleRule {
     pub abort_incomplete_multipart_upload: Option<AbortIncompleteMultipartUpload>,
     /// <p>Specifies the expiration for the lifecycle of the object in the form of date, days and,
@@ -11490,7 +11680,7 @@ impl fmt::Debug for LifecycleRule {
 /// <p>This is used in a Lifecycle Rule Filter to apply a logical AND to two or more
 /// predicates. The Lifecycle Rule will apply to any object matching all of the predicates
 /// configured inside the And operator.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct LifecycleRuleAndOperator {
     /// <p>Minimum object size to which the rule applies.</p>
     pub object_size_greater_than: Option<ObjectSizeGreaterThanBytes>,
@@ -11527,7 +11717,7 @@ impl fmt::Debug for LifecycleRuleAndOperator {
 /// <code>ObjectSizeGreaterThan</code>, <code>ObjectSizeLessThan</code>, or <code>And</code>
 /// specified. If the <code>Filter</code> element is left empty, the Lifecycle Rule applies to
 /// all objects in the bucket.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct LifecycleRuleFilter {
     pub and: Option<LifecycleRuleAndOperator>,
     /// <p>Minimum object size to which the rule applies.</p>
@@ -11573,7 +11763,7 @@ impl fmt::Debug for LifecycleRuleFilter {
 
 pub type LifecycleRules = List<LifecycleRule>;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct ListBucketAnalyticsConfigurationsInput {
     /// <p>The name of the bucket from which analytics configurations are retrieved.</p>
     pub bucket: BucketName,
@@ -11643,7 +11833,7 @@ impl fmt::Debug for ListBucketAnalyticsConfigurationsOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct ListBucketIntelligentTieringConfigurationsInput {
     /// <p>The name of the Amazon S3 bucket whose configuration you want to modify or retrieve.</p>
     pub bucket: BucketName,
@@ -11706,7 +11896,7 @@ impl fmt::Debug for ListBucketIntelligentTieringConfigurationsOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct ListBucketInventoryConfigurationsInput {
     /// <p>The name of the bucket containing the inventory configurations to retrieve.</p>
     pub bucket: BucketName,
@@ -11776,7 +11966,7 @@ impl fmt::Debug for ListBucketInventoryConfigurationsOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct ListBucketMetricsConfigurationsInput {
     /// <p>The name of the bucket containing the metrics configurations to retrieve.</p>
     pub bucket: BucketName,
@@ -11943,7 +12133,64 @@ impl fmt::Debug for ListBucketsOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
+pub struct ListDirectoryBucketsInput {
+    /// <p>
+    /// <code>ContinuationToken</code> indicates to Amazon S3 that the list is being continued on
+    /// buckets in this account with a token. <code>ContinuationToken</code> is obfuscated and is
+    /// not a real bucket name. You can use this <code>ContinuationToken</code> for the pagination
+    /// of the list results. </p>
+    pub continuation_token: Option<DirectoryBucketToken>,
+    /// <p>Maximum number of buckets to be returned in response. When the number is more than the
+    /// count of buckets that are owned by an Amazon Web Services account, return all the buckets in
+    /// response.</p>
+    pub max_directory_buckets: Option<MaxDirectoryBuckets>,
+}
+
+impl fmt::Debug for ListDirectoryBucketsInput {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("ListDirectoryBucketsInput");
+        if let Some(ref val) = self.continuation_token {
+            d.field("continuation_token", val);
+        }
+        if let Some(ref val) = self.max_directory_buckets {
+            d.field("max_directory_buckets", val);
+        }
+        d.finish_non_exhaustive()
+    }
+}
+
+impl ListDirectoryBucketsInput {
+    #[must_use]
+    pub fn builder() -> builders::ListDirectoryBucketsInputBuilder {
+        default()
+    }
+}
+
+#[derive(Clone, Default, PartialEq)]
+pub struct ListDirectoryBucketsOutput {
+    /// <p>The list of buckets owned by the requester. </p>
+    pub buckets: Option<Buckets>,
+    /// <p>If <code>ContinuationToken</code> was sent with the request, it is included in the
+    /// response. You can use the returned <code>ContinuationToken</code> for pagination of the
+    /// list response.</p>
+    pub continuation_token: Option<DirectoryBucketToken>,
+}
+
+impl fmt::Debug for ListDirectoryBucketsOutput {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("ListDirectoryBucketsOutput");
+        if let Some(ref val) = self.buckets {
+            d.field("buckets", val);
+        }
+        if let Some(ref val) = self.continuation_token {
+            d.field("continuation_token", val);
+        }
+        d.finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, Default, PartialEq)]
 pub struct ListMultipartUploadsInput {
     /// <p>The name of the bucket to which the multipart upload was initiated. </p>
     /// <p>
@@ -12189,7 +12436,7 @@ impl fmt::Debug for ListMultipartUploadsOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct ListObjectVersionsInput {
     /// <p>The bucket name that contains the objects. </p>
     pub bucket: BucketName,
@@ -12367,7 +12614,7 @@ impl fmt::Debug for ListObjectVersionsOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct ListObjectsInput {
     /// <p>The name of the bucket containing the objects.</p>
     /// <p>
@@ -12451,6 +12698,20 @@ impl ListObjectsInput {
 
 #[derive(Clone, Default, PartialEq)]
 pub struct ListObjectsOutput {
+    /// <p>The bucket name.</p>
+    pub name: Option<BucketName>,
+    /// <p>Keys that begin with the indicated prefix.</p>
+    pub prefix: Option<Prefix>,
+    /// <p>Indicates where in the bucket listing begins. Marker is included in the response if it
+    /// was sent with the request.</p>
+    pub marker: Option<Marker>,
+    /// <p>The maximum number of keys returned in the response body.</p>
+    pub max_keys: Option<MaxKeys>,
+    /// <p>A flag that indicates whether Amazon S3 returned all of the results that satisfied the search
+    /// criteria.</p>
+    pub is_truncated: Option<IsTruncated>,
+    /// <p>Metadata about each object returned.</p>
+    pub contents: Option<ObjectList>,
     /// <p>All of the keys (up to 1,000) rolled up in a common prefix count as a single return when
     /// calculating the number of returns. </p>
     /// <p>A response can contain <code>CommonPrefixes</code> only if you specify a
@@ -12467,14 +12728,24 @@ pub struct ListObjectsOutput {
     /// <code>notes/summer/</code>. All of the keys that roll up into a common prefix count as a
     /// single return when calculating the number of returns.</p>
     pub common_prefixes: Option<CommonPrefixList>,
-    /// <p>Metadata about each object returned.</p>
-    pub contents: Option<ObjectList>,
     /// <p>Causes keys that contain the same string between the prefix and the first occurrence of
     /// the delimiter to be rolled up into a single result element in the
     /// <code>CommonPrefixes</code> collection. These rolled-up keys are not returned elsewhere
     /// in the response. Each rolled-up result counts as only one return against the
     /// <code>MaxKeys</code> value.</p>
     pub delimiter: Option<Delimiter>,
+    /// <p>When the response is truncated (the <code>IsTruncated</code> element value in the
+    /// response is <code>true</code>), you can use the key name in this field as the
+    /// <code>marker</code> parameter in the subsequent request to get the next set of objects.
+    /// Amazon S3 lists objects in alphabetical order. </p>
+    /// <note>
+    /// <p>This element is returned only if you have the <code>delimiter</code> request
+    /// parameter specified. If the response does not include the <code>NextMarker</code>
+    /// element and it is truncated, you can use the value of the last <code>Key</code> element
+    /// in the response as the <code>marker</code> parameter in the subsequent request to get
+    /// the next set of object keys.</p>
+    /// </note>
+    pub next_marker: Option<NextMarker>,
     /// <p>Encoding type used by Amazon S3 to encode the <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html">object keys</a> in the response.
     /// Responses are encoded only in UTF-8. An object key can contain any Unicode character.
     /// However, the XML 1.0 parser can't parse certain characters, such as characters with an
@@ -12489,50 +12760,17 @@ pub struct ListObjectsOutput {
     /// <code>test_file%283%29.png</code>.</p>
     /// </note>
     pub encoding_type: Option<EncodingType>,
-    /// <p>A flag that indicates whether Amazon S3 returned all of the results that satisfied the search
-    /// criteria.</p>
-    pub is_truncated: Option<IsTruncated>,
-    /// <p>Indicates where in the bucket listing begins. Marker is included in the response if it
-    /// was sent with the request.</p>
-    pub marker: Option<Marker>,
-    /// <p>The maximum number of keys returned in the response body.</p>
-    pub max_keys: Option<MaxKeys>,
-    /// <p>The bucket name.</p>
-    pub name: Option<BucketName>,
-    /// <p>When the response is truncated (the <code>IsTruncated</code> element value in the
-    /// response is <code>true</code>), you can use the key name in this field as the
-    /// <code>marker</code> parameter in the subsequent request to get the next set of objects.
-    /// Amazon S3 lists objects in alphabetical order. </p>
-    /// <note>
-    /// <p>This element is returned only if you have the <code>delimiter</code> request
-    /// parameter specified. If the response does not include the <code>NextMarker</code>
-    /// element and it is truncated, you can use the value of the last <code>Key</code> element
-    /// in the response as the <code>marker</code> parameter in the subsequent request to get
-    /// the next set of object keys.</p>
-    /// </note>
-    pub next_marker: Option<NextMarker>,
-    /// <p>Keys that begin with the indicated prefix.</p>
-    pub prefix: Option<Prefix>,
     pub request_charged: Option<RequestCharged>,
 }
 
 impl fmt::Debug for ListObjectsOutput {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut d = f.debug_struct("ListObjectsOutput");
-        if let Some(ref val) = self.common_prefixes {
-            d.field("common_prefixes", val);
+        if let Some(ref val) = self.name {
+            d.field("name", val);
         }
-        if let Some(ref val) = self.contents {
-            d.field("contents", val);
-        }
-        if let Some(ref val) = self.delimiter {
-            d.field("delimiter", val);
-        }
-        if let Some(ref val) = self.encoding_type {
-            d.field("encoding_type", val);
-        }
-        if let Some(ref val) = self.is_truncated {
-            d.field("is_truncated", val);
+        if let Some(ref val) = self.prefix {
+            d.field("prefix", val);
         }
         if let Some(ref val) = self.marker {
             d.field("marker", val);
@@ -12540,14 +12778,23 @@ impl fmt::Debug for ListObjectsOutput {
         if let Some(ref val) = self.max_keys {
             d.field("max_keys", val);
         }
-        if let Some(ref val) = self.name {
-            d.field("name", val);
+        if let Some(ref val) = self.is_truncated {
+            d.field("is_truncated", val);
+        }
+        if let Some(ref val) = self.contents {
+            d.field("contents", val);
+        }
+        if let Some(ref val) = self.common_prefixes {
+            d.field("common_prefixes", val);
+        }
+        if let Some(ref val) = self.delimiter {
+            d.field("delimiter", val);
         }
         if let Some(ref val) = self.next_marker {
             d.field("next_marker", val);
         }
-        if let Some(ref val) = self.prefix {
-            d.field("prefix", val);
+        if let Some(ref val) = self.encoding_type {
+            d.field("encoding_type", val);
         }
         if let Some(ref val) = self.request_charged {
             d.field("request_charged", val);
@@ -12556,7 +12803,7 @@ impl fmt::Debug for ListObjectsOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct ListObjectsV2Input {
     /// <p>
     /// <b>Directory buckets</b> -
@@ -12704,6 +12951,41 @@ impl ListObjectsV2Input {
 
 #[derive(Clone, Default, PartialEq)]
 pub struct ListObjectsV2Output {
+    /// <p>The bucket name.</p>
+    pub name: Option<BucketName>,
+    /// <p>Keys that begin with the indicated prefix.</p>
+    /// <note>
+    /// <p>
+    /// <b>Directory buckets</b> - For directory buckets, only prefixes that end in a delimiter (<code>/</code>) are supported.</p>
+    /// </note>
+    pub prefix: Option<Prefix>,
+    /// <p>Sets the maximum number of keys returned in the response. By default, the action returns
+    /// up to 1,000 key names. The response might contain fewer keys but will never contain
+    /// more.</p>
+    pub max_keys: Option<MaxKeys>,
+    /// <p>
+    /// <code>KeyCount</code> is the number of keys returned with this request.
+    /// <code>KeyCount</code> will always be less than or equal to the <code>MaxKeys</code>
+    /// field. For example, if you ask for 50 keys, your result will include 50 keys or
+    /// fewer.</p>
+    pub key_count: Option<KeyCount>,
+    /// <p> If <code>ContinuationToken</code> was sent with the request, it is included in the
+    /// response. You can use the returned <code>ContinuationToken</code> for pagination of the
+    /// list response. You can use this <code>ContinuationToken</code> for pagination of the list
+    /// results. </p>
+    pub continuation_token: Option<Token>,
+    /// <p>Set to <code>false</code> if all of the results were returned. Set to <code>true</code>
+    /// if more keys are available to return. If the number of results exceeds that specified by
+    /// <code>MaxKeys</code>, all of the results might not be returned.</p>
+    pub is_truncated: Option<IsTruncated>,
+    /// <p>
+    /// <code>NextContinuationToken</code> is sent when <code>isTruncated</code> is true, which
+    /// means there are more keys in the bucket that can be listed. The next list requests to Amazon S3
+    /// can be continued with this <code>NextContinuationToken</code>.
+    /// <code>NextContinuationToken</code> is obfuscated and is not a real key</p>
+    pub next_continuation_token: Option<NextToken>,
+    /// <p>Metadata about each object returned.</p>
+    pub contents: Option<ObjectList>,
     /// <p>All of the keys (up to 1,000) that share the same prefix are grouped together. When
     /// counting the total numbers of returns by this API operation, this group of keys is
     /// considered as one item.</p>
@@ -12738,13 +13020,6 @@ pub struct ListObjectsV2Output {
     /// </ul>
     /// </note>
     pub common_prefixes: Option<CommonPrefixList>,
-    /// <p>Metadata about each object returned.</p>
-    pub contents: Option<ObjectList>,
-    /// <p> If <code>ContinuationToken</code> was sent with the request, it is included in the
-    /// response. You can use the returned <code>ContinuationToken</code> for pagination of the
-    /// list response. You can use this <code>ContinuationToken</code> for pagination of the list
-    /// results. </p>
-    pub continuation_token: Option<Token>,
     /// <p>Causes keys that contain the same string between the <code>prefix</code> and the first
     /// occurrence of the delimiter to be rolled up into a single result element in the
     /// <code>CommonPrefixes</code> collection. These rolled-up keys are not returned elsewhere
@@ -12762,53 +13037,43 @@ pub struct ListObjectsV2Output {
     /// <p>
     /// <code>Delimiter, Prefix, Key,</code> and <code>StartAfter</code>.</p>
     pub encoding_type: Option<EncodingType>,
-    /// <p>Set to <code>false</code> if all of the results were returned. Set to <code>true</code>
-    /// if more keys are available to return. If the number of results exceeds that specified by
-    /// <code>MaxKeys</code>, all of the results might not be returned.</p>
-    pub is_truncated: Option<IsTruncated>,
-    /// <p>
-    /// <code>KeyCount</code> is the number of keys returned with this request.
-    /// <code>KeyCount</code> will always be less than or equal to the <code>MaxKeys</code>
-    /// field. For example, if you ask for 50 keys, your result will include 50 keys or
-    /// fewer.</p>
-    pub key_count: Option<KeyCount>,
-    /// <p>Sets the maximum number of keys returned in the response. By default, the action returns
-    /// up to 1,000 key names. The response might contain fewer keys but will never contain
-    /// more.</p>
-    pub max_keys: Option<MaxKeys>,
-    /// <p>The bucket name.</p>
-    pub name: Option<BucketName>,
-    /// <p>
-    /// <code>NextContinuationToken</code> is sent when <code>isTruncated</code> is true, which
-    /// means there are more keys in the bucket that can be listed. The next list requests to Amazon S3
-    /// can be continued with this <code>NextContinuationToken</code>.
-    /// <code>NextContinuationToken</code> is obfuscated and is not a real key</p>
-    pub next_continuation_token: Option<NextToken>,
-    /// <p>Keys that begin with the indicated prefix.</p>
-    /// <note>
-    /// <p>
-    /// <b>Directory buckets</b> - For directory buckets, only prefixes that end in a delimiter (<code>/</code>) are supported.</p>
-    /// </note>
-    pub prefix: Option<Prefix>,
-    pub request_charged: Option<RequestCharged>,
     /// <p>If StartAfter was sent with the request, it is included in the response.</p>
     /// <note>
     /// <p>This functionality is not supported for directory buckets.</p>
     /// </note>
     pub start_after: Option<StartAfter>,
+    pub request_charged: Option<RequestCharged>,
 }
 
 impl fmt::Debug for ListObjectsV2Output {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut d = f.debug_struct("ListObjectsV2Output");
-        if let Some(ref val) = self.common_prefixes {
-            d.field("common_prefixes", val);
+        if let Some(ref val) = self.name {
+            d.field("name", val);
+        }
+        if let Some(ref val) = self.prefix {
+            d.field("prefix", val);
+        }
+        if let Some(ref val) = self.max_keys {
+            d.field("max_keys", val);
+        }
+        if let Some(ref val) = self.key_count {
+            d.field("key_count", val);
+        }
+        if let Some(ref val) = self.continuation_token {
+            d.field("continuation_token", val);
+        }
+        if let Some(ref val) = self.is_truncated {
+            d.field("is_truncated", val);
+        }
+        if let Some(ref val) = self.next_continuation_token {
+            d.field("next_continuation_token", val);
         }
         if let Some(ref val) = self.contents {
             d.field("contents", val);
         }
-        if let Some(ref val) = self.continuation_token {
-            d.field("continuation_token", val);
+        if let Some(ref val) = self.common_prefixes {
+            d.field("common_prefixes", val);
         }
         if let Some(ref val) = self.delimiter {
             d.field("delimiter", val);
@@ -12816,35 +13081,17 @@ impl fmt::Debug for ListObjectsV2Output {
         if let Some(ref val) = self.encoding_type {
             d.field("encoding_type", val);
         }
-        if let Some(ref val) = self.is_truncated {
-            d.field("is_truncated", val);
-        }
-        if let Some(ref val) = self.key_count {
-            d.field("key_count", val);
-        }
-        if let Some(ref val) = self.max_keys {
-            d.field("max_keys", val);
-        }
-        if let Some(ref val) = self.name {
-            d.field("name", val);
-        }
-        if let Some(ref val) = self.next_continuation_token {
-            d.field("next_continuation_token", val);
-        }
-        if let Some(ref val) = self.prefix {
-            d.field("prefix", val);
+        if let Some(ref val) = self.start_after {
+            d.field("start_after", val);
         }
         if let Some(ref val) = self.request_charged {
             d.field("request_charged", val);
-        }
-        if let Some(ref val) = self.start_after {
-            d.field("start_after", val);
         }
         d.finish_non_exhaustive()
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct ListPartsInput {
     /// <p>The name of the bucket to which the parts are being uploaded. </p>
     /// <p>
@@ -13080,7 +13327,7 @@ pub type Location = String;
 /// <note>
 /// <p>This functionality is only supported by directory buckets.</p>
 /// </note>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct LocationInfo {
     /// <p>The name of the location where the bucket will be created.</p>
     /// <p>For directory buckets, the name of the location is the Zone ID of the Availability Zone (AZ) or Local Zone (LZ) where the bucket will be created. An example AZ ID value is <code>usw2-az1</code>.</p>
@@ -13106,7 +13353,7 @@ pub type LocationNameAsString = String;
 
 pub type LocationPrefix = String;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LocationType(Cow<'static, str>);
 
 impl LocationType {
@@ -13147,7 +13394,7 @@ impl FromStr for LocationType {
 /// <p>Describes where logs are stored and the prefix that Amazon S3 assigns to all log object keys
 /// for a bucket. For more information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/RESTBucketPUTlogging.html">PUT Bucket logging</a> in the
 /// <i>Amazon S3 API Reference</i>.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct LoggingEnabled {
     /// <p>Specifies the bucket where you want Amazon S3 to store server access logs. You can have your
     /// logs delivered to any bucket that you own, including the same bucket that is being logged.
@@ -13185,7 +13432,7 @@ impl fmt::Debug for LoggingEnabled {
 
 pub type MFA = String;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MFADelete(Cow<'static, str>);
 
 impl MFADelete {
@@ -13344,7 +13591,7 @@ pub type MetadataKey = String;
 /// <p>
 /// The metadata table configuration for a general purpose bucket.
 /// </p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct MetadataTableConfiguration {
     /// <p>
     /// The destination information for the metadata table configuration. The destination table bucket
@@ -13360,6 +13607,14 @@ impl fmt::Debug for MetadataTableConfiguration {
         let mut d = f.debug_struct("MetadataTableConfiguration");
         d.field("s3_tables_destination", &self.s3_tables_destination);
         d.finish_non_exhaustive()
+    }
+}
+
+impl Default for MetadataTableConfiguration {
+    fn default() -> Self {
+        Self {
+            s3_tables_destination: default(),
+        }
     }
 }
 
@@ -13394,7 +13649,7 @@ pub type MetadataValue = String;
 
 /// <p> A container specifying replication metrics-related settings enabling replication
 /// metrics and events.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Metrics {
     /// <p> A container specifying the time threshold for emitting the
     /// <code>s3:Replication:OperationMissedThreshold</code> event. </p>
@@ -13417,7 +13672,7 @@ impl fmt::Debug for Metrics {
 /// <p>A conjunction (logical AND) of predicates, which is used in evaluating a metrics filter.
 /// The operator must have at least two predicates, and an object must match all of the
 /// predicates in order for the filter to apply.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct MetricsAndOperator {
     /// <p>The access point ARN used when evaluating an <code>AND</code> predicate.</p>
     pub access_point_arn: Option<AccessPointArn>,
@@ -13448,7 +13703,7 @@ impl fmt::Debug for MetricsAndOperator {
 /// configuration, note that this is a full replacement of the existing metrics configuration.
 /// If you don't include the elements you want to keep, they are erased. For more information,
 /// see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/RESTBucketPUTMetricConfiguration.html">PutBucketMetricsConfiguration</a>.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct MetricsConfiguration {
     /// <p>Specifies a metrics configuration filter. The metrics configuration will only include
     /// objects that meet the filter's criteria. A filter must be a prefix, an object tag, an
@@ -13475,8 +13730,9 @@ pub type MetricsConfigurationList = List<MetricsConfiguration>;
 /// <p>Specifies a metrics configuration filter. The metrics configuration only includes
 /// objects that meet the filter's criteria. A filter must be a prefix, an object tag, an
 /// access point ARN, or a conjunction (MetricsAndOperator). For more information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutBucketMetricsConfiguration.html">PutBucketMetricsConfiguration</a>.</p>
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
+#[serde(rename_all = "PascalCase")]
 pub enum MetricsFilter {
     /// <p>The access point ARN used when evaluating a metrics filter.</p>
     AccessPointArn(AccessPointArn),
@@ -13492,7 +13748,7 @@ pub enum MetricsFilter {
 
 pub type MetricsId = String;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MetricsStatus(Cow<'static, str>);
 
 impl MetricsStatus {
@@ -13658,7 +13914,7 @@ pub type NonNegativeIntegerType = i32;
 /// <p>This parameter applies to general purpose buckets only. It is not supported for
 /// directory bucket lifecycle configurations.</p>
 /// </note>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct NoncurrentVersionExpiration {
     /// <p>Specifies how many noncurrent versions Amazon S3 will retain. You can specify up to 100
     /// noncurrent versions to retain. Amazon S3 will permanently delete any additional noncurrent
@@ -13703,7 +13959,7 @@ impl fmt::Debug for NoncurrentVersionExpiration {
 /// <code>STANDARD_IA</code>, <code>ONEZONE_IA</code>, <code>INTELLIGENT_TIERING</code>,
 /// <code>GLACIER_IR</code>, <code>GLACIER</code>, or <code>DEEP_ARCHIVE</code> storage
 /// class at a specific period in the object's lifetime.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct NoncurrentVersionTransition {
     /// <p>Specifies how many noncurrent versions Amazon S3 will retain in the same storage class before
     /// transitioning objects. You can specify up to 100 noncurrent versions to retain. Amazon S3 will
@@ -13751,7 +14007,7 @@ impl fmt::Debug for NotFound {
 
 /// <p>A container for specifying the notification configuration of the bucket. If this element
 /// is empty, notifications are turned off for the bucket.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct NotificationConfiguration {
     /// <p>Enables delivery of events to Amazon EventBridge.</p>
     pub event_bridge_configuration: Option<EventBridgeConfiguration>,
@@ -13789,7 +14045,7 @@ impl fmt::Debug for NotificationConfiguration {
 /// <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/notification-how-to-filtering.html">Configuring event
 /// notifications using object key name filtering</a> in the
 /// <i>Amazon S3 User Guide</i>.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct NotificationConfigurationFilter {
     pub key: Option<S3KeyFilter>,
 }
@@ -14015,7 +14271,7 @@ impl FromStr for ObjectCannedACL {
 }
 
 /// <p>Object Identifier is unique value to identify objects.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct ObjectIdentifier {
     /// <p>An entity tag (ETag) is an identifier assigned by a web server to a specific version of a resource found at a URL.
     /// This header field makes the request method conditional on <code>ETags</code>. </p>
@@ -14075,7 +14331,7 @@ pub type ObjectKey = String;
 pub type ObjectList = List<Object>;
 
 /// <p>The container element for Object Lock configuration parameters.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ObjectLockConfiguration {
     /// <p>Indicates whether this bucket has an Object Lock configuration enabled. Enable
     /// <code>ObjectLockEnabled</code> when you apply <code>ObjectLockConfiguration</code> to a
@@ -14102,7 +14358,7 @@ impl fmt::Debug for ObjectLockConfiguration {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObjectLockEnabled(Cow<'static, str>);
 
 impl ObjectLockEnabled {
@@ -14257,7 +14513,7 @@ impl fmt::Debug for ObjectLockRetention {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObjectLockRetentionMode(Cow<'static, str>);
 
 impl ObjectLockRetentionMode {
@@ -14296,7 +14552,7 @@ impl FromStr for ObjectLockRetentionMode {
 }
 
 /// <p>The container element for an Object Lock rule.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ObjectLockRule {
     /// <p>The default Object Lock retention mode and period that you want to apply to new objects
     /// placed in the specified bucket. Bucket settings require both a mode and a period. The
@@ -14750,7 +15006,7 @@ impl fmt::Debug for Owner {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OwnerOverride(Cow<'static, str>);
 
 impl OwnerOverride {
@@ -14969,7 +15225,7 @@ pub type PartsCount = i32;
 
 pub type PartsList = List<ObjectPart>;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Payer(Cow<'static, str>);
 
 impl Payer {
@@ -15071,6 +15327,714 @@ impl fmt::Debug for PolicyStatus {
     }
 }
 
+#[derive(Default)]
+pub struct PostObjectInput {
+    /// <p>The canned ACL to apply to the object. For more information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/acl-overview.html#CannedACL">Canned
+    /// ACL</a> in the <i>Amazon S3 User Guide</i>.</p>
+    /// <p>When adding a new object, you can use headers to grant ACL-based permissions to
+    /// individual Amazon Web Services accounts or to predefined groups defined by Amazon S3. These permissions are
+    /// then added to the ACL on the object. By default, all objects are private. Only the owner
+    /// has full access control. For more information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/acl-overview.html">Access Control List (ACL) Overview</a>
+    /// and <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/acl-using-rest-api.html">Managing
+    /// ACLs Using the REST API</a> in the <i>Amazon S3 User Guide</i>.</p>
+    /// <p>If the bucket that you're uploading objects to uses the bucket owner enforced setting
+    /// for S3 Object Ownership, ACLs are disabled and no longer affect permissions. Buckets that
+    /// use this setting only accept PUT requests that don't specify an ACL or PUT requests that
+    /// specify bucket owner full control ACLs, such as the <code>bucket-owner-full-control</code>
+    /// canned ACL or an equivalent form of this ACL expressed in the XML format. PUT requests that
+    /// contain other ACLs (for example, custom grants to certain Amazon Web Services accounts) fail and return a
+    /// <code>400</code> error with the error code <code>AccessControlListNotSupported</code>.
+    /// For more information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/about-object-ownership.html"> Controlling ownership of
+    /// objects and disabling ACLs</a> in the <i>Amazon S3 User Guide</i>.</p>
+    /// <note>
+    /// <ul>
+    /// <li>
+    /// <p>This functionality is not supported for directory buckets.</p>
+    /// </li>
+    /// <li>
+    /// <p>This functionality is not supported for Amazon S3 on Outposts.</p>
+    /// </li>
+    /// </ul>
+    /// </note>
+    pub acl: Option<ObjectCannedACL>,
+    /// <p>Object data.</p>
+    pub body: Option<StreamingBlob>,
+    /// <p>The bucket name to which the PUT action was initiated. </p>
+    /// <p>
+    /// <b>Directory buckets</b> -
+    /// When you use this operation with a directory bucket, you must use virtual-hosted-style requests in the format <code>
+    /// <i>Bucket-name</i>.s3express-<i>zone-id</i>.<i>region-code</i>.amazonaws.com</code>. Path-style requests are not supported.  Directory bucket names must be unique in the chosen Zone (Availability Zone or Local Zone). Bucket names must follow the format <code>
+    /// <i>bucket-base-name</i>--<i>zone-id</i>--x-s3</code> (for example, <code>
+    /// <i>amzn-s3-demo-bucket</i>--<i>usw2-az1</i>--x-s3</code>). For information about bucket naming
+    /// restrictions, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/directory-bucket-naming-rules.html">Directory bucket naming
+    /// rules</a> in the <i>Amazon S3 User Guide</i>.</p>
+    /// <p>
+    /// <b>Access points</b> - When you use this action with an access point, you must provide the alias of the access point in place of the bucket name or specify the access point ARN. When using the access point ARN, you must direct requests to the access point hostname. The access point hostname takes the form <i>AccessPointName</i>-<i>AccountId</i>.s3-accesspoint.<i>Region</i>.amazonaws.com. When using this action with an access point through the Amazon Web Services SDKs, you provide the access point ARN in place of the bucket name. For more information about access point ARNs, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-access-points.html">Using access points</a> in the <i>Amazon S3 User Guide</i>.</p>
+    /// <note>
+    /// <p>Access points and Object Lambda access points are not supported by directory buckets.</p>
+    /// </note>
+    /// <p>
+    /// <b>S3 on Outposts</b> - When you use this action with S3 on Outposts, you must direct requests to the S3 on Outposts hostname. The S3 on Outposts hostname takes the
+    /// form <code>
+    /// <i>AccessPointName</i>-<i>AccountId</i>.<i>outpostID</i>.s3-outposts.<i>Region</i>.amazonaws.com</code>. When you use this action with S3 on Outposts, the destination bucket must be the Outposts access point ARN or the access point alias. For more information about S3 on Outposts, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/S3onOutposts.html">What is S3 on Outposts?</a> in the <i>Amazon S3 User Guide</i>.</p>
+    pub bucket: BucketName,
+    /// <p>Specifies whether Amazon S3 should use an S3 Bucket Key for object encryption with
+    /// server-side encryption using Key Management Service (KMS) keys (SSE-KMS).</p>
+    /// <p>
+    /// <b>General purpose buckets</b> - Setting this header to
+    /// <code>true</code> causes Amazon S3 to use an S3 Bucket Key for object encryption with
+    /// SSE-KMS. Also, specifying this header with a PUT action doesn't affect bucket-level settings for S3
+    /// Bucket Key.</p>
+    /// <p>
+    /// <b>Directory buckets</b> - S3 Bucket Keys are always enabled for <code>GET</code> and <code>PUT</code> operations in a directory bucket and can’t be disabled. S3 Bucket Keys aren't supported, when you copy SSE-KMS encrypted objects from general purpose buckets  
+    /// to directory buckets, from directory buckets to general purpose buckets, or between directory buckets, through <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_CopyObject.html">CopyObject</a>, <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_UploadPartCopy.html">UploadPartCopy</a>, <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/directory-buckets-objects-Batch-Ops">the Copy operation in Batch Operations</a>, or
+    /// <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/create-import-job">the import jobs</a>. In this case, Amazon S3 makes a call to KMS every time a copy request is made for a KMS-encrypted object.</p>
+    pub bucket_key_enabled: Option<BucketKeyEnabled>,
+    /// <p>Can be used to specify caching behavior along the request/reply chain. For more
+    /// information, see <a href="http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.9">http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.9</a>.</p>
+    pub cache_control: Option<CacheControl>,
+    /// <p>Indicates the algorithm used to create the checksum for the object when you use the SDK. This header will not provide any
+    /// additional functionality if you don't use the SDK. When you send this header, there must be a corresponding <code>x-amz-checksum-<i>algorithm</i>
+    /// </code> or
+    /// <code>x-amz-trailer</code> header sent. Otherwise, Amazon S3 fails the request with the HTTP status code <code>400 Bad Request</code>.</p>
+    /// <p>For the <code>x-amz-checksum-<i>algorithm</i>
+    /// </code> header, replace <code>
+    /// <i>algorithm</i>
+    /// </code> with the supported algorithm from the following list: </p>
+    /// <ul>
+    /// <li>
+    /// <p>
+    /// <code>CRC32</code>
+    /// </p>
+    /// </li>
+    /// <li>
+    /// <p>
+    /// <code>CRC32C</code>
+    /// </p>
+    /// </li>
+    /// <li>
+    /// <p>
+    /// <code>CRC64NVME</code>
+    /// </p>
+    /// </li>
+    /// <li>
+    /// <p>
+    /// <code>SHA1</code>
+    /// </p>
+    /// </li>
+    /// <li>
+    /// <p>
+    /// <code>SHA256</code>
+    /// </p>
+    /// </li>
+    /// </ul>
+    /// <p>For more
+    /// information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html">Checking object integrity</a> in
+    /// the <i>Amazon S3 User Guide</i>.</p>
+    /// <p>If the individual checksum value you provide through <code>x-amz-checksum-<i>algorithm</i>
+    /// </code> doesn't match the checksum algorithm you set through <code>x-amz-sdk-checksum-algorithm</code>, Amazon S3 fails the request with a <code>BadDigest</code> error.</p>
+    /// <note>
+    /// <p>The <code>Content-MD5</code> or <code>x-amz-sdk-checksum-algorithm</code> header is
+    /// required for any request to upload an object with a retention period configured using
+    /// Amazon S3 Object Lock. For more information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lock-managing.html#object-lock-put-object">Uploading objects to an Object Lock enabled bucket </a> in the
+    /// <i>Amazon S3 User Guide</i>.</p>
+    /// </note>
+    /// <p>For directory buckets, when you use Amazon Web Services SDKs, <code>CRC32</code> is the default checksum algorithm that's used for performance.</p>
+    pub checksum_algorithm: Option<ChecksumAlgorithm>,
+    /// <p>This header can be used as a data integrity check to verify that the data received is the same data that was originally sent.
+    /// This header specifies the Base64 encoded, 32-bit <code>CRC32</code> checksum of the object. For more information, see
+    /// <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html">Checking object integrity</a> in the
+    /// <i>Amazon S3 User Guide</i>.</p>
+    pub checksum_crc32: Option<ChecksumCRC32>,
+    /// <p>This header can be used as a data integrity check to verify that the data received is the same data that was originally sent.
+    /// This header specifies the Base64 encoded, 32-bit <code>CRC32C</code> checksum of the object. For more information, see
+    /// <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html">Checking object integrity</a> in the
+    /// <i>Amazon S3 User Guide</i>.</p>
+    pub checksum_crc32c: Option<ChecksumCRC32C>,
+    /// <p>This header can be used as a data integrity check to verify that the data received is
+    /// the same data that was originally sent. This header specifies the Base64 encoded, 64-bit
+    /// <code>CRC64NVME</code> checksum of the object. The <code>CRC64NVME</code> checksum is
+    /// always a full object checksum. For more information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html">Checking object integrity
+    /// in the Amazon S3 User Guide</a>.</p>
+    pub checksum_crc64nvme: Option<ChecksumCRC64NVME>,
+    /// <p>This header can be used as a data integrity check to verify that the data received is the same data that was originally sent.
+    /// This header specifies the Base64 encoded, 160-bit <code>SHA1</code> digest of the object. For more information, see
+    /// <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html">Checking object integrity</a> in the
+    /// <i>Amazon S3 User Guide</i>.</p>
+    pub checksum_sha1: Option<ChecksumSHA1>,
+    /// <p>This header can be used as a data integrity check to verify that the data received is the same data that was originally sent.
+    /// This header specifies the Base64 encoded, 256-bit <code>SHA256</code> digest of the object. For more information, see
+    /// <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html">Checking object integrity</a> in the
+    /// <i>Amazon S3 User Guide</i>.</p>
+    pub checksum_sha256: Option<ChecksumSHA256>,
+    /// <p>Specifies presentational information for the object. For more information, see <a href="https://www.rfc-editor.org/rfc/rfc6266#section-4">https://www.rfc-editor.org/rfc/rfc6266#section-4</a>.</p>
+    pub content_disposition: Option<ContentDisposition>,
+    /// <p>Specifies what content encodings have been applied to the object and thus what decoding
+    /// mechanisms must be applied to obtain the media-type referenced by the Content-Type header
+    /// field. For more information, see <a href="https://www.rfc-editor.org/rfc/rfc9110.html#field.content-encoding">https://www.rfc-editor.org/rfc/rfc9110.html#field.content-encoding</a>.</p>
+    pub content_encoding: Option<ContentEncoding>,
+    /// <p>The language the content is in.</p>
+    pub content_language: Option<ContentLanguage>,
+    /// <p>Size of the body in bytes. This parameter is useful when the size of the body cannot be
+    /// determined automatically. For more information, see <a href="https://www.rfc-editor.org/rfc/rfc9110.html#name-content-length">https://www.rfc-editor.org/rfc/rfc9110.html#name-content-length</a>.</p>
+    pub content_length: Option<ContentLength>,
+    /// <p>The Base64 encoded 128-bit <code>MD5</code> digest of the message (without the headers) according to
+    /// RFC 1864. This header can be used as a message integrity check to verify that the data is
+    /// the same data that was originally sent. Although it is optional, we recommend using the
+    /// Content-MD5 mechanism as an end-to-end integrity check. For more information about REST
+    /// request authentication, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/RESTAuthentication.html">REST Authentication</a>.</p>
+    /// <note>
+    /// <p>The <code>Content-MD5</code> or <code>x-amz-sdk-checksum-algorithm</code> header is
+    /// required for any request to upload an object with a retention period configured using
+    /// Amazon S3 Object Lock. For more information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lock-managing.html#object-lock-put-object">Uploading objects to an Object Lock enabled bucket </a> in the
+    /// <i>Amazon S3 User Guide</i>.</p>
+    /// </note>
+    /// <note>
+    /// <p>This functionality is not supported for directory buckets.</p>
+    /// </note>
+    pub content_md5: Option<ContentMD5>,
+    /// <p>A standard MIME type describing the format of the contents. For more information, see
+    /// <a href="https://www.rfc-editor.org/rfc/rfc9110.html#name-content-type">https://www.rfc-editor.org/rfc/rfc9110.html#name-content-type</a>.</p>
+    pub content_type: Option<ContentType>,
+    /// <p>The account ID of the expected bucket owner. If the account ID that you provide does not match the actual owner of the bucket, the request fails with the HTTP status code <code>403 Forbidden</code> (access denied).</p>
+    pub expected_bucket_owner: Option<AccountId>,
+    /// <p>The date and time at which the object is no longer cacheable. For more information, see
+    /// <a href="https://www.rfc-editor.org/rfc/rfc7234#section-5.3">https://www.rfc-editor.org/rfc/rfc7234#section-5.3</a>.</p>
+    pub expires: Option<Expires>,
+    /// <p>Gives the grantee READ, READ_ACP, and WRITE_ACP permissions on the object.</p>
+    /// <note>
+    /// <ul>
+    /// <li>
+    /// <p>This functionality is not supported for directory buckets.</p>
+    /// </li>
+    /// <li>
+    /// <p>This functionality is not supported for Amazon S3 on Outposts.</p>
+    /// </li>
+    /// </ul>
+    /// </note>
+    pub grant_full_control: Option<GrantFullControl>,
+    /// <p>Allows grantee to read the object data and its metadata.</p>
+    /// <note>
+    /// <ul>
+    /// <li>
+    /// <p>This functionality is not supported for directory buckets.</p>
+    /// </li>
+    /// <li>
+    /// <p>This functionality is not supported for Amazon S3 on Outposts.</p>
+    /// </li>
+    /// </ul>
+    /// </note>
+    pub grant_read: Option<GrantRead>,
+    /// <p>Allows grantee to read the object ACL.</p>
+    /// <note>
+    /// <ul>
+    /// <li>
+    /// <p>This functionality is not supported for directory buckets.</p>
+    /// </li>
+    /// <li>
+    /// <p>This functionality is not supported for Amazon S3 on Outposts.</p>
+    /// </li>
+    /// </ul>
+    /// </note>
+    pub grant_read_acp: Option<GrantReadACP>,
+    /// <p>Allows grantee to write the ACL for the applicable object.</p>
+    /// <note>
+    /// <ul>
+    /// <li>
+    /// <p>This functionality is not supported for directory buckets.</p>
+    /// </li>
+    /// <li>
+    /// <p>This functionality is not supported for Amazon S3 on Outposts.</p>
+    /// </li>
+    /// </ul>
+    /// </note>
+    pub grant_write_acp: Option<GrantWriteACP>,
+    /// <p>Uploads the object only if the ETag (entity tag) value provided during the WRITE
+    /// operation matches the ETag of the object in S3. If the ETag values do not match, the
+    /// operation returns a <code>412 Precondition Failed</code> error.</p>
+    /// <p>If a conflicting operation occurs during the upload S3 returns a <code>409 ConditionalRequestConflict</code> response. On a 409 failure you should fetch the object's ETag and retry the upload.</p>
+    /// <p>Expects the ETag value as a string.</p>
+    /// <p>For more information about conditional requests, see <a href="https://tools.ietf.org/html/rfc7232">RFC 7232</a>, or <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-requests.html">Conditional requests</a> in the <i>Amazon S3 User Guide</i>.</p>
+    pub if_match: Option<IfMatch>,
+    /// <p>Uploads the object only if the object key name does not already exist in the bucket
+    /// specified. Otherwise, Amazon S3 returns a <code>412 Precondition Failed</code> error.</p>
+    /// <p>If a conflicting operation occurs during the upload S3 returns a <code>409
+    /// ConditionalRequestConflict</code> response. On a 409 failure you should retry the
+    /// upload.</p>
+    /// <p>Expects the '*' (asterisk) character.</p>
+    /// <p>For more information about conditional requests, see <a href="https://tools.ietf.org/html/rfc7232">RFC 7232</a>, or <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-requests.html">Conditional requests</a> in the <i>Amazon S3 User Guide</i>.</p>
+    pub if_none_match: Option<IfNoneMatch>,
+    /// <p>Object key for which the PUT action was initiated.</p>
+    pub key: ObjectKey,
+    /// <p>A map of metadata to store with the object in S3.</p>
+    pub metadata: Option<Metadata>,
+    /// <p>Specifies whether a legal hold will be applied to this object. For more information
+    /// about S3 Object Lock, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/object-lock.html">Object Lock</a> in the
+    /// <i>Amazon S3 User Guide</i>.</p>
+    /// <note>
+    /// <p>This functionality is not supported for directory buckets.</p>
+    /// </note>
+    pub object_lock_legal_hold_status: Option<ObjectLockLegalHoldStatus>,
+    /// <p>The Object Lock mode that you want to apply to this object.</p>
+    /// <note>
+    /// <p>This functionality is not supported for directory buckets.</p>
+    /// </note>
+    pub object_lock_mode: Option<ObjectLockMode>,
+    /// <p>The date and time when you want this object's Object Lock to expire. Must be formatted
+    /// as a timestamp parameter.</p>
+    /// <note>
+    /// <p>This functionality is not supported for directory buckets.</p>
+    /// </note>
+    pub object_lock_retain_until_date: Option<ObjectLockRetainUntilDate>,
+    pub request_payer: Option<RequestPayer>,
+    /// <p>Specifies the algorithm to use when encrypting the object (for example,
+    /// <code>AES256</code>).</p>
+    /// <note>
+    /// <p>This functionality is not supported for directory buckets.</p>
+    /// </note>
+    pub sse_customer_algorithm: Option<SSECustomerAlgorithm>,
+    /// <p>Specifies the customer-provided encryption key for Amazon S3 to use in encrypting data. This
+    /// value is used to store the object and then it is discarded; Amazon S3 does not store the
+    /// encryption key. The key must be appropriate for use with the algorithm specified in the
+    /// <code>x-amz-server-side-encryption-customer-algorithm</code> header.</p>
+    /// <note>
+    /// <p>This functionality is not supported for directory buckets.</p>
+    /// </note>
+    pub sse_customer_key: Option<SSECustomerKey>,
+    /// <p>Specifies the 128-bit MD5 digest of the encryption key according to RFC 1321. Amazon S3 uses
+    /// this header for a message integrity check to ensure that the encryption key was transmitted
+    /// without error.</p>
+    /// <note>
+    /// <p>This functionality is not supported for directory buckets.</p>
+    /// </note>
+    pub sse_customer_key_md5: Option<SSECustomerKeyMD5>,
+    /// <p>Specifies the Amazon Web Services KMS Encryption Context as an additional encryption context to use for object encryption. The value of
+    /// this header is a Base64 encoded string of a UTF-8 encoded JSON, which contains the encryption context as key-value pairs.
+    /// This value is stored as object metadata and automatically gets passed on
+    /// to Amazon Web Services KMS for future <code>GetObject</code> operations on
+    /// this object.</p>
+    /// <p>
+    /// <b>General purpose buckets</b> - This value must be explicitly added during <code>CopyObject</code> operations if you want an additional encryption context for your object. For more information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html#encryption-context">Encryption context</a> in the <i>Amazon S3 User Guide</i>.</p>
+    /// <p>
+    /// <b>Directory buckets</b> - You can optionally provide an explicit encryption context value. The value must match the default encryption context - the bucket Amazon Resource Name (ARN). An additional encryption context value is not supported. </p>
+    pub ssekms_encryption_context: Option<SSEKMSEncryptionContext>,
+    /// <p>Specifies the KMS key ID (Key ID, Key ARN, or Key Alias) to use for object encryption. If the KMS key doesn't exist in the same
+    /// account that's issuing the command, you must use the full Key ARN not the Key ID.</p>
+    /// <p>
+    /// <b>General purpose buckets</b> - If you specify <code>x-amz-server-side-encryption</code> with <code>aws:kms</code> or <code>aws:kms:dsse</code>, this header specifies the ID (Key ID, Key ARN, or Key Alias) of the KMS
+    /// key to use. If you specify
+    /// <code>x-amz-server-side-encryption:aws:kms</code> or
+    /// <code>x-amz-server-side-encryption:aws:kms:dsse</code>, but do not provide <code>x-amz-server-side-encryption-aws-kms-key-id</code>, Amazon S3 uses the Amazon Web Services managed key
+    /// (<code>aws/s3</code>) to protect the data.</p>
+    /// <p>
+    /// <b>Directory buckets</b> - To encrypt data using SSE-KMS, it's recommended to specify the
+    /// <code>x-amz-server-side-encryption</code> header to <code>aws:kms</code>. Then, the <code>x-amz-server-side-encryption-aws-kms-key-id</code> header implicitly uses
+    /// the bucket's default KMS customer managed key ID. If you want to explicitly set the <code>
+    /// x-amz-server-side-encryption-aws-kms-key-id</code> header, it must match the bucket's default customer managed key (using key ID or ARN, not alias). Your SSE-KMS configuration can only support 1 <a href="https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html#customer-cmk">customer managed key</a> per directory bucket's lifetime.
+    /// The <a href="https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html#aws-managed-cmk">Amazon Web Services managed key</a> (<code>aws/s3</code>) isn't supported.
+    ///
+    /// Incorrect key specification results in an HTTP <code>400 Bad Request</code> error. </p>
+    pub ssekms_key_id: Option<SSEKMSKeyId>,
+    /// <p>The server-side encryption algorithm that was used when you store this object in Amazon S3
+    /// (for example, <code>AES256</code>, <code>aws:kms</code>, <code>aws:kms:dsse</code>).</p>
+    /// <ul>
+    /// <li>
+    /// <p>
+    /// <b>General purpose buckets </b> - You have four mutually
+    /// exclusive options to protect data using server-side encryption in Amazon S3, depending on
+    /// how you choose to manage the encryption keys. Specifically, the encryption key
+    /// options are Amazon S3 managed keys (SSE-S3), Amazon Web Services KMS keys (SSE-KMS or DSSE-KMS), and
+    /// customer-provided keys (SSE-C). Amazon S3 encrypts data with server-side encryption by
+    /// using Amazon S3 managed keys (SSE-S3) by default. You can optionally tell Amazon S3 to encrypt
+    /// data at rest by using server-side encryption with other key options. For more
+    /// information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/UsingServerSideEncryption.html">Using Server-Side
+    /// Encryption</a> in the <i>Amazon S3 User Guide</i>.</p>
+    /// </li>
+    /// <li>
+    /// <p>
+    /// <b>Directory buckets </b> -
+    /// For directory buckets, there are only two supported options for server-side encryption: server-side encryption with Amazon S3 managed keys (SSE-S3) (<code>AES256</code>) and server-side encryption with KMS keys (SSE-KMS) (<code>aws:kms</code>). We recommend that the bucket's default encryption uses the desired encryption configuration and you don't override the bucket default encryption in your
+    /// <code>CreateSession</code> requests or <code>PUT</code> object requests. Then, new objects
+    /// are automatically encrypted with the desired encryption settings. For more
+    /// information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-express-serv-side-encryption.html">Protecting data with server-side encryption</a> in the <i>Amazon S3 User Guide</i>. For more information about the encryption overriding behaviors in directory buckets, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-express-specifying-kms-encryption.html">Specifying server-side encryption with KMS for new object uploads</a>. </p>
+    /// <p>In the Zonal endpoint API calls (except <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_CopyObject.html">CopyObject</a> and <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_UploadPartCopy.html">UploadPartCopy</a>) using the REST API, the encryption request headers must match the encryption settings that are specified in the <code>CreateSession</code> request.
+    /// You can't override the values of the encryption settings (<code>x-amz-server-side-encryption</code>, <code>x-amz-server-side-encryption-aws-kms-key-id</code>, <code>x-amz-server-side-encryption-context</code>, and <code>x-amz-server-side-encryption-bucket-key-enabled</code>) that are specified in the <code>CreateSession</code> request.
+    /// You don't need to explicitly specify these encryption settings values in Zonal endpoint API calls, and   
+    /// Amazon S3 will use the encryption settings values from the <code>CreateSession</code> request to protect new objects in the directory bucket.
+    /// </p>
+    /// <note>
+    /// <p>When you use the CLI or the Amazon Web Services SDKs, for <code>CreateSession</code>, the session token refreshes automatically to avoid service interruptions when a session expires. The CLI or the Amazon Web Services SDKs use the bucket's default encryption configuration for the
+    /// <code>CreateSession</code> request. It's not supported to override the encryption settings values in the <code>CreateSession</code> request.
+    /// So in the Zonal endpoint API calls (except <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_CopyObject.html">CopyObject</a> and <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_UploadPartCopy.html">UploadPartCopy</a>),
+    /// the encryption request headers must match the default encryption configuration of the directory bucket.
+    ///
+    /// </p>
+    /// </note>
+    /// </li>
+    /// </ul>
+    pub server_side_encryption: Option<ServerSideEncryption>,
+    /// <p>By default, Amazon S3 uses the STANDARD Storage Class to store newly created objects. The
+    /// STANDARD storage class provides high durability and high availability. Depending on
+    /// performance needs, you can specify a different Storage Class. For more information, see
+    /// <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/storage-class-intro.html">Storage
+    /// Classes</a> in the <i>Amazon S3 User Guide</i>.</p>
+    /// <note>
+    /// <ul>
+    /// <li>
+    /// <p>For directory buckets, only the S3 Express One Zone storage class is supported to store
+    /// newly created objects.</p>
+    /// </li>
+    /// <li>
+    /// <p>Amazon S3 on Outposts only uses the OUTPOSTS Storage Class.</p>
+    /// </li>
+    /// </ul>
+    /// </note>
+    pub storage_class: Option<StorageClass>,
+    /// <p>The tag-set for the object. The tag-set must be encoded as URL Query parameters. (For
+    /// example, "Key1=Value1")</p>
+    /// <note>
+    /// <p>This functionality is not supported for directory buckets.</p>
+    /// </note>
+    pub tagging: Option<TaggingHeader>,
+    /// <p>If the bucket is configured as a website, redirects requests for this object to another
+    /// object in the same bucket or to an external URL. Amazon S3 stores the value of this header in
+    /// the object metadata. For information about object metadata, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/UsingMetadata.html">Object Key and Metadata</a> in the
+    /// <i>Amazon S3 User Guide</i>.</p>
+    /// <p>In the following example, the request header sets the redirect to an object
+    /// (anotherPage.html) in the same bucket:</p>
+    /// <p>
+    /// <code>x-amz-website-redirect-location: /anotherPage.html</code>
+    /// </p>
+    /// <p>In the following example, the request header sets the object redirect to another
+    /// website:</p>
+    /// <p>
+    /// <code>x-amz-website-redirect-location: http://www.example.com/</code>
+    /// </p>
+    /// <p>For more information about website hosting in Amazon S3, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/WebsiteHosting.html">Hosting Websites on Amazon S3</a> and
+    /// <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/how-to-page-redirect.html">How to
+    /// Configure Website Page Redirects</a> in the <i>Amazon S3 User Guide</i>. </p>
+    /// <note>
+    /// <p>This functionality is not supported for directory buckets.</p>
+    /// </note>
+    pub website_redirect_location: Option<WebsiteRedirectLocation>,
+    /// <p>
+    /// Specifies the offset for appending data to existing objects in bytes.
+    /// The offset must be equal to the size of the existing object being appended to.
+    /// If no object exists, setting this header to 0 will create a new object.
+    /// </p>
+    /// <note>
+    /// <p>This functionality is only supported for objects in the Amazon S3 Express One Zone storage class in directory buckets.</p>
+    /// </note>
+    pub write_offset_bytes: Option<WriteOffsetBytes>,
+    /// The URL to which the client is redirected upon successful upload.
+    pub success_action_redirect: Option<String>,
+    /// The status code returned to the client upon successful upload. Valid values are 200, 201, and 204.
+    pub success_action_status: Option<i32>,
+    /// The POST policy document that was included in the request.
+    pub policy: Option<PostPolicy>,
+}
+
+impl fmt::Debug for PostObjectInput {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("PostObjectInput");
+        if let Some(ref val) = self.acl {
+            d.field("acl", val);
+        }
+        if let Some(ref val) = self.body {
+            d.field("body", val);
+        }
+        d.field("bucket", &self.bucket);
+        if let Some(ref val) = self.bucket_key_enabled {
+            d.field("bucket_key_enabled", val);
+        }
+        if let Some(ref val) = self.cache_control {
+            d.field("cache_control", val);
+        }
+        if let Some(ref val) = self.checksum_algorithm {
+            d.field("checksum_algorithm", val);
+        }
+        if let Some(ref val) = self.checksum_crc32 {
+            d.field("checksum_crc32", val);
+        }
+        if let Some(ref val) = self.checksum_crc32c {
+            d.field("checksum_crc32c", val);
+        }
+        if let Some(ref val) = self.checksum_crc64nvme {
+            d.field("checksum_crc64nvme", val);
+        }
+        if let Some(ref val) = self.checksum_sha1 {
+            d.field("checksum_sha1", val);
+        }
+        if let Some(ref val) = self.checksum_sha256 {
+            d.field("checksum_sha256", val);
+        }
+        if let Some(ref val) = self.content_disposition {
+            d.field("content_disposition", val);
+        }
+        if let Some(ref val) = self.content_encoding {
+            d.field("content_encoding", val);
+        }
+        if let Some(ref val) = self.content_language {
+            d.field("content_language", val);
+        }
+        if let Some(ref val) = self.content_length {
+            d.field("content_length", val);
+        }
+        if let Some(ref val) = self.content_md5 {
+            d.field("content_md5", val);
+        }
+        if let Some(ref val) = self.content_type {
+            d.field("content_type", val);
+        }
+        if let Some(ref val) = self.expected_bucket_owner {
+            d.field("expected_bucket_owner", val);
+        }
+        if let Some(ref val) = self.expires {
+            d.field("expires", val);
+        }
+        if let Some(ref val) = self.grant_full_control {
+            d.field("grant_full_control", val);
+        }
+        if let Some(ref val) = self.grant_read {
+            d.field("grant_read", val);
+        }
+        if let Some(ref val) = self.grant_read_acp {
+            d.field("grant_read_acp", val);
+        }
+        if let Some(ref val) = self.grant_write_acp {
+            d.field("grant_write_acp", val);
+        }
+        if let Some(ref val) = self.if_match {
+            d.field("if_match", val);
+        }
+        if let Some(ref val) = self.if_none_match {
+            d.field("if_none_match", val);
+        }
+        d.field("key", &self.key);
+        if let Some(ref val) = self.metadata {
+            d.field("metadata", val);
+        }
+        if let Some(ref val) = self.object_lock_legal_hold_status {
+            d.field("object_lock_legal_hold_status", val);
+        }
+        if let Some(ref val) = self.object_lock_mode {
+            d.field("object_lock_mode", val);
+        }
+        if let Some(ref val) = self.object_lock_retain_until_date {
+            d.field("object_lock_retain_until_date", val);
+        }
+        if let Some(ref val) = self.request_payer {
+            d.field("request_payer", val);
+        }
+        if let Some(ref val) = self.sse_customer_algorithm {
+            d.field("sse_customer_algorithm", val);
+        }
+        if let Some(ref val) = self.sse_customer_key {
+            d.field("sse_customer_key", val);
+        }
+        if let Some(ref val) = self.sse_customer_key_md5 {
+            d.field("sse_customer_key_md5", val);
+        }
+        if let Some(ref val) = self.ssekms_encryption_context {
+            d.field("ssekms_encryption_context", val);
+        }
+        if let Some(ref val) = self.ssekms_key_id {
+            d.field("ssekms_key_id", val);
+        }
+        if let Some(ref val) = self.server_side_encryption {
+            d.field("server_side_encryption", val);
+        }
+        if let Some(ref val) = self.storage_class {
+            d.field("storage_class", val);
+        }
+        if let Some(ref val) = self.tagging {
+            d.field("tagging", val);
+        }
+        if let Some(ref val) = self.website_redirect_location {
+            d.field("website_redirect_location", val);
+        }
+        if let Some(ref val) = self.write_offset_bytes {
+            d.field("write_offset_bytes", val);
+        }
+        if let Some(ref val) = self.success_action_redirect {
+            d.field("success_action_redirect", val);
+        }
+        if let Some(ref val) = self.success_action_status {
+            d.field("success_action_status", val);
+        }
+        if let Some(ref val) = self.policy {
+            d.field("policy", val);
+        }
+        d.finish_non_exhaustive()
+    }
+}
+
+impl PostObjectInput {
+    #[must_use]
+    pub fn builder() -> builders::PostObjectInputBuilder {
+        default()
+    }
+}
+
+#[derive(Clone, Default, PartialEq)]
+pub struct PostObjectOutput {
+    /// <p>Indicates whether the uploaded object uses an S3 Bucket Key for server-side encryption
+    /// with Key Management Service (KMS) keys (SSE-KMS).</p>
+    pub bucket_key_enabled: Option<BucketKeyEnabled>,
+    /// <p>The Base64 encoded, 32-bit <code>CRC32 checksum</code> of the object. This checksum is only be present if the checksum was uploaded
+    /// with the object. When you use an API operation on an object that was uploaded using multipart uploads, this value may not be a direct checksum value of the full object. Instead, it's a calculation based on the checksum values of each individual part. For more information about how checksums are calculated
+    /// with multipart uploads, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html#large-object-checksums">
+    /// Checking object integrity</a> in the <i>Amazon S3 User Guide</i>.</p>
+    pub checksum_crc32: Option<ChecksumCRC32>,
+    /// <p>The Base64 encoded, 32-bit <code>CRC32C</code> checksum of the object. This checksum is only present if the checksum was uploaded
+    /// with the object. When you use an API operation on an object that was uploaded using multipart uploads, this value may not be a direct checksum value of the full object. Instead, it's a calculation based on the checksum values of each individual part. For more information about how checksums are calculated
+    /// with multipart uploads, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html#large-object-checksums">
+    /// Checking object integrity</a> in the <i>Amazon S3 User Guide</i>.</p>
+    pub checksum_crc32c: Option<ChecksumCRC32C>,
+    /// <p>The Base64 encoded, 64-bit <code>CRC64NVME</code> checksum of the object. This header
+    /// is present if the object was uploaded with the <code>CRC64NVME</code> checksum algorithm, or if it
+    /// was uploaded without a checksum (and Amazon S3 added the default checksum,
+    /// <code>CRC64NVME</code>, to the uploaded object). For more information about how
+    /// checksums are calculated with multipart uploads, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html">Checking object integrity
+    /// in the Amazon S3 User Guide</a>.</p>
+    pub checksum_crc64nvme: Option<ChecksumCRC64NVME>,
+    /// <p>The Base64 encoded, 160-bit <code>SHA1</code> digest of the object. This will only be present if the object was uploaded
+    /// with the object. When you use the API operation on an object that was uploaded using multipart uploads, this value may not be a direct checksum value of the full object. Instead, it's a calculation based on the checksum values of each individual part. For more information about how checksums are calculated
+    /// with multipart uploads, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html#large-object-checksums">
+    /// Checking object integrity</a> in the <i>Amazon S3 User Guide</i>.</p>
+    pub checksum_sha1: Option<ChecksumSHA1>,
+    /// <p>The Base64 encoded, 256-bit <code>SHA256</code> digest of the object. This will only be present if the object was uploaded
+    /// with the object. When you use an API operation on an object that was uploaded using multipart uploads, this value may not be a direct checksum value of the full object. Instead, it's a calculation based on the checksum values of each individual part. For more information about how checksums are calculated
+    /// with multipart uploads, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html#large-object-checksums">
+    /// Checking object integrity</a> in the <i>Amazon S3 User Guide</i>.</p>
+    pub checksum_sha256: Option<ChecksumSHA256>,
+    /// <p>This header specifies the checksum type of the object, which determines how part-level
+    /// checksums are combined to create an object-level checksum for multipart objects. For
+    /// <code>PutObject</code> uploads, the checksum type is always <code>FULL_OBJECT</code>. You can use this header as a
+    /// data integrity check to verify that the checksum type that is received is the same checksum
+    /// that was specified. For more information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html">Checking object integrity</a> in the <i>Amazon S3 User Guide</i>.</p>
+    pub checksum_type: Option<ChecksumType>,
+    /// <p>Entity tag for the uploaded object.</p>
+    /// <p>
+    /// <b>General purpose buckets </b> - To ensure that data is not
+    /// corrupted traversing the network, for objects where the ETag is the MD5 digest of the
+    /// object, you can calculate the MD5 while putting an object to Amazon S3 and compare the returned
+    /// ETag to the calculated MD5 value.</p>
+    /// <p>
+    /// <b>Directory buckets </b> - The ETag for the object in
+    /// a directory bucket isn't the MD5 digest of the object.</p>
+    pub e_tag: Option<ETag>,
+    /// <p>If the expiration is configured for the object (see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutBucketLifecycleConfiguration.html">PutBucketLifecycleConfiguration</a>) in the <i>Amazon S3 User Guide</i>,
+    /// the response includes this header. It includes the <code>expiry-date</code> and
+    /// <code>rule-id</code> key-value pairs that provide information about object expiration.
+    /// The value of the <code>rule-id</code> is URL-encoded.</p>
+    /// <note>
+    /// <p>Object expiration information is not returned in directory buckets and this header returns the value "<code>NotImplemented</code>" in all responses for directory buckets.</p>
+    /// </note>
+    pub expiration: Option<Expiration>,
+    pub request_charged: Option<RequestCharged>,
+    /// <p>If server-side encryption with a customer-provided encryption key was requested, the
+    /// response will include this header to confirm the encryption algorithm that's used.</p>
+    /// <note>
+    /// <p>This functionality is not supported for directory buckets.</p>
+    /// </note>
+    pub sse_customer_algorithm: Option<SSECustomerAlgorithm>,
+    /// <p>If server-side encryption with a customer-provided encryption key was requested, the
+    /// response will include this header to provide the round-trip message integrity verification
+    /// of the customer-provided encryption key.</p>
+    /// <note>
+    /// <p>This functionality is not supported for directory buckets.</p>
+    /// </note>
+    pub sse_customer_key_md5: Option<SSECustomerKeyMD5>,
+    /// <p>If present, indicates the Amazon Web Services KMS Encryption Context to use for object encryption. The value of
+    /// this header is a Base64 encoded string of a UTF-8 encoded JSON, which contains the encryption context as key-value pairs.
+    /// This value is stored as object metadata and automatically gets
+    /// passed on to Amazon Web Services KMS for future <code>GetObject</code>
+    /// operations on this object.</p>
+    pub ssekms_encryption_context: Option<SSEKMSEncryptionContext>,
+    /// <p>If present, indicates the ID of the KMS key that was used for object encryption.</p>
+    pub ssekms_key_id: Option<SSEKMSKeyId>,
+    /// <p>The server-side encryption algorithm used when you store this object in Amazon S3.</p>
+    pub server_side_encryption: Option<ServerSideEncryption>,
+    /// <p>
+    /// The size of the object in bytes. This value is only be present if you append to an object.
+    /// </p>
+    /// <note>
+    /// <p>This functionality is only supported for objects in the Amazon S3 Express One Zone storage class in directory buckets.</p>
+    /// </note>
+    pub size: Option<Size>,
+    /// <p>Version ID of the object.</p>
+    /// <p>If you enable versioning for a bucket, Amazon S3 automatically generates a unique version ID
+    /// for the object being stored. Amazon S3 returns this ID in the response. When you enable
+    /// versioning for a bucket, if Amazon S3 receives multiple write requests for the same object
+    /// simultaneously, it stores all of the objects. For more information about versioning, see
+    /// <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/AddingObjectstoVersioningEnabledBuckets.html">Adding Objects to
+    /// Versioning-Enabled Buckets</a> in the <i>Amazon S3 User Guide</i>. For
+    /// information about returning the versioning state of a bucket, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetBucketVersioning.html">GetBucketVersioning</a>. </p>
+    /// <note>
+    /// <p>This functionality is not supported for directory buckets.</p>
+    /// </note>
+    pub version_id: Option<ObjectVersionId>,
+}
+
+impl fmt::Debug for PostObjectOutput {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("PostObjectOutput");
+        if let Some(ref val) = self.bucket_key_enabled {
+            d.field("bucket_key_enabled", val);
+        }
+        if let Some(ref val) = self.checksum_crc32 {
+            d.field("checksum_crc32", val);
+        }
+        if let Some(ref val) = self.checksum_crc32c {
+            d.field("checksum_crc32c", val);
+        }
+        if let Some(ref val) = self.checksum_crc64nvme {
+            d.field("checksum_crc64nvme", val);
+        }
+        if let Some(ref val) = self.checksum_sha1 {
+            d.field("checksum_sha1", val);
+        }
+        if let Some(ref val) = self.checksum_sha256 {
+            d.field("checksum_sha256", val);
+        }
+        if let Some(ref val) = self.checksum_type {
+            d.field("checksum_type", val);
+        }
+        if let Some(ref val) = self.e_tag {
+            d.field("e_tag", val);
+        }
+        if let Some(ref val) = self.expiration {
+            d.field("expiration", val);
+        }
+        if let Some(ref val) = self.request_charged {
+            d.field("request_charged", val);
+        }
+        if let Some(ref val) = self.sse_customer_algorithm {
+            d.field("sse_customer_algorithm", val);
+        }
+        if let Some(ref val) = self.sse_customer_key_md5 {
+            d.field("sse_customer_key_md5", val);
+        }
+        if let Some(ref val) = self.ssekms_encryption_context {
+            d.field("ssekms_encryption_context", val);
+        }
+        if let Some(ref val) = self.ssekms_key_id {
+            d.field("ssekms_key_id", val);
+        }
+        if let Some(ref val) = self.server_side_encryption {
+            d.field("server_side_encryption", val);
+        }
+        if let Some(ref val) = self.size {
+            d.field("size", val);
+        }
+        if let Some(ref val) = self.version_id {
+            d.field("version_id", val);
+        }
+        d.finish_non_exhaustive()
+    }
+}
+
 pub type Prefix = String;
 
 pub type Priority = i32;
@@ -15119,7 +16083,7 @@ impl fmt::Debug for ProgressEvent {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Protocol(Cow<'static, str>);
 
 impl Protocol {
@@ -15160,7 +16124,7 @@ impl FromStr for Protocol {
 /// <p>The PublicAccessBlock configuration that you want to apply to this Amazon S3 bucket. You can
 /// enable the configuration options in any combination. For more information about when Amazon S3
 /// considers a bucket or object public, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/access-control-block-public-access.html#access-control-block-public-access-policy-status">The Meaning of "Public"</a> in the <i>Amazon S3 User Guide</i>. </p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct PublicAccessBlockConfiguration {
     /// <p>Specifies whether Amazon S3 should block public access control lists (ACLs) for this bucket
     /// and objects in this bucket. Setting this element to <code>TRUE</code> causes the following
@@ -15268,7 +16232,7 @@ impl fmt::Debug for PutBucketAccelerateConfigurationOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct PutBucketAclInput {
     /// <p>The canned ACL to apply to the bucket.</p>
     pub acl: Option<BucketCannedACL>,
@@ -15620,7 +16584,7 @@ impl fmt::Debug for PutBucketInventoryConfigurationOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct PutBucketLifecycleConfigurationInput {
     /// <p>The name of the bucket for which to set the configuration.</p>
     pub bucket: BucketName,
@@ -15922,7 +16886,7 @@ impl fmt::Debug for PutBucketOwnershipControlsOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct PutBucketPolicyInput {
     /// <p>The name of the bucket.</p>
     /// <p>
@@ -16339,7 +17303,7 @@ impl fmt::Debug for PutBucketWebsiteOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct PutObjectAclInput {
     /// <p>The canned ACL to apply to the object. For more information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/acl-overview.html#CannedACL">Canned
     /// ACL</a>.</p>
@@ -16465,6 +17429,7 @@ impl fmt::Debug for PutObjectAclOutput {
     }
 }
 
+#[derive(Default)]
 pub struct PutObjectInput {
     /// <p>The canned ACL to apply to the object. For more information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/acl-overview.html#CannedACL">Canned
     /// ACL</a> in the <i>Amazon S3 User Guide</i>.</p>
@@ -16998,7 +17963,7 @@ impl PutObjectInput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct PutObjectLegalHoldInput {
     /// <p>The bucket name containing the object that you want to place a legal hold on. </p>
     /// <p>
@@ -17076,7 +18041,7 @@ impl fmt::Debug for PutObjectLegalHoldOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct PutObjectLockConfigurationInput {
     /// <p>The bucket whose Object Lock configuration you want to create or replace.</p>
     pub bucket: BucketName,
@@ -17307,7 +18272,7 @@ impl fmt::Debug for PutObjectOutput {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct PutObjectRetentionInput {
     /// <p>The bucket name that contains the object you want to apply this Object Retention
     /// configuration to. </p>
@@ -17535,7 +18500,7 @@ pub type QueueArn = String;
 
 /// <p>Specifies the configuration for publishing messages to an Amazon Simple Queue Service
 /// (Amazon SQS) queue when Amazon S3 detects specified events.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct QueueConfiguration {
     /// <p>A collection of bucket events for which to send notifications</p>
     pub events: EventList,
@@ -17633,7 +18598,7 @@ impl fmt::Debug for RecordsEvent {
 
 /// <p>Specifies how requests are redirected. In the event of an error, you can specify a
 /// different error code to return.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Redirect {
     /// <p>The host name to use in the redirect request.</p>
     pub host_name: Option<HostName>,
@@ -17690,7 +18655,7 @@ impl fmt::Debug for Redirect {
 
 /// <p>Specifies the redirect behavior of all requests to a website endpoint of an Amazon S3
 /// bucket.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RedirectAllRequestsTo {
     /// <p>Name of the host where requests are redirected.</p>
     pub host_name: HostName,
@@ -17727,7 +18692,7 @@ pub type ReplicaKmsKeyID = String;
 /// replication configuration is the earlier version, V1. In the earlier version, this
 /// element is not allowed.</p>
 /// </note>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReplicaModifications {
     /// <p>Specifies whether Amazon S3 replicates modifications on replicas.</p>
     pub status: ReplicaModificationsStatus,
@@ -17741,7 +18706,7 @@ impl fmt::Debug for ReplicaModifications {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReplicaModificationsStatus(Cow<'static, str>);
 
 impl ReplicaModificationsStatus {
@@ -17781,7 +18746,7 @@ impl FromStr for ReplicaModificationsStatus {
 
 /// <p>A container for replication rules. You can add up to 1,000 rules. The maximum size of a
 /// replication configuration is 2 MB.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReplicationConfiguration {
     /// <p>The Amazon Resource Name (ARN) of the Identity and Access Management (IAM) role that Amazon S3 assumes when
     /// replicating objects. For more information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/replication-how-setup.html">How to Set Up Replication</a>
@@ -17802,7 +18767,7 @@ impl fmt::Debug for ReplicationConfiguration {
 }
 
 /// <p>Specifies which Amazon S3 objects to replicate and where to store the replicas.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReplicationRule {
     pub delete_marker_replication: Option<DeleteMarkerReplication>,
     /// <p>A container for information about the replication destination and its configurations
@@ -17887,7 +18852,7 @@ impl fmt::Debug for ReplicationRule {
 /// in an <code>And</code> tag.</p>
 /// </li>
 /// </ul>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReplicationRuleAndOperator {
     /// <p>An object key name prefix that identifies the subset of objects to which the rule
     /// applies.</p>
@@ -17912,7 +18877,7 @@ impl fmt::Debug for ReplicationRuleAndOperator {
 /// <p>A filter that identifies the subset of objects to which the replication rule applies. A
 /// <code>Filter</code> must specify exactly one <code>Prefix</code>, <code>Tag</code>, or
 /// an <code>And</code> child element.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReplicationRuleFilter {
     /// <p>A container for specifying rule filters. The filters determine the subset of objects to
     /// which the rule applies. This element is required only if you specify more than one filter.
@@ -17957,7 +18922,7 @@ impl fmt::Debug for ReplicationRuleFilter {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReplicationRuleStatus(Cow<'static, str>);
 
 impl ReplicationRuleStatus {
@@ -18044,7 +19009,7 @@ impl FromStr for ReplicationStatus {
 /// <p> A container specifying S3 Replication Time Control (S3 RTC) related information, including whether S3 RTC is
 /// enabled and the time when all objects and operations on objects must be replicated. Must be
 /// specified together with a <code>Metrics</code> block. </p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReplicationTime {
     /// <p> Specifies whether the replication time is enabled. </p>
     pub status: ReplicationTimeStatus,
@@ -18062,7 +19027,7 @@ impl fmt::Debug for ReplicationTime {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReplicationTimeStatus(Cow<'static, str>);
 
 impl ReplicationTimeStatus {
@@ -18102,7 +19067,7 @@ impl FromStr for ReplicationTimeStatus {
 
 /// <p> A container specifying the time value for S3 Replication Time Control (S3 RTC) and replication metrics
 /// <code>EventThreshold</code>. </p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReplicationTimeValue {
     /// <p> Contains an integer specifying time in minutes. </p>
     /// <p> Valid value: 15</p>
@@ -18206,7 +19171,7 @@ impl FromStr for RequestPayer {
 }
 
 /// <p>Container for Payer.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct RequestPaymentConfiguration {
     /// <p>Specifies who pays for the download and request fees.</p>
     pub payer: Payer,
@@ -18217,6 +19182,14 @@ impl fmt::Debug for RequestPaymentConfiguration {
         let mut d = f.debug_struct("RequestPaymentConfiguration");
         d.field("payer", &self.payer);
         d.finish_non_exhaustive()
+    }
+}
+
+impl Default for RequestPaymentConfiguration {
+    fn default() -> Self {
+        Self {
+            payer: String::new().into(),
+        }
     }
 }
 
@@ -18259,7 +19232,7 @@ pub type Restore = String;
 
 pub type RestoreExpiryDate = Timestamp;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct RestoreObjectInput {
     /// <p>The bucket name containing the object to restore. </p>
     /// <p>
@@ -18486,7 +19459,7 @@ pub type Role = String;
 /// <p>Specifies the redirect behavior and when a redirect is applied. For more information
 /// about routing rules, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/how-to-page-redirect.html#advanced-conditional-redirects">Configuring advanced conditional redirects</a> in the
 /// <i>Amazon S3 User Guide</i>.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct RoutingRule {
     /// <p>A container for describing a condition that must be met for the specified redirect to
     /// apply. For example, 1. If request is for pages in the <code>/docs</code> folder, redirect
@@ -18513,7 +19486,7 @@ impl fmt::Debug for RoutingRule {
 pub type RoutingRules = List<RoutingRule>;
 
 /// <p>A container for object key name prefix and suffix filtering rules.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct S3KeyFilter {
     pub filter_rules: Option<FilterRuleList>,
 }
@@ -18529,7 +19502,7 @@ impl fmt::Debug for S3KeyFilter {
 }
 
 /// <p>Describes an Amazon S3 location that will receive the results of the restore request.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct S3Location {
     /// <p>A list of grants that control access to the staged results.</p>
     pub access_control_list: Option<Grants>,
@@ -18585,7 +19558,7 @@ pub type S3TablesBucketArn = String;
 /// table name must be unique within the <code>aws_s3_metadata</code> namespace in the destination
 /// table bucket.
 /// </p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct S3TablesDestination {
     /// <p>
     /// The Amazon Resource Name (ARN) for the table bucket that's specified as the
@@ -18616,7 +19589,7 @@ impl fmt::Debug for S3TablesDestination {
 /// table name must be unique within the <code>aws_s3_metadata</code> namespace in the destination
 /// table bucket.
 /// </p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct S3TablesDestinationResult {
     /// <p>
     /// The Amazon Resource Name (ARN) for the metadata table in the metadata table configuration. The
@@ -18665,7 +19638,7 @@ pub type SSECustomerKey = String;
 pub type SSECustomerKeyMD5 = String;
 
 /// <p>Specifies the use of SSE-KMS to encrypt delivered inventory reports.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SSEKMS {
     /// <p>Specifies the ID of the Key Management Service (KMS) symmetric encryption customer managed key to use for
     /// encrypting inventory reports.</p>
@@ -18685,7 +19658,7 @@ pub type SSEKMSEncryptionContext = String;
 pub type SSEKMSKeyId = String;
 
 /// <p>Specifies the use of SSE-S3 to encrypt delivered inventory reports.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SSES3 {}
 
 impl fmt::Debug for SSES3 {
@@ -18926,7 +19899,7 @@ impl fmt::Debug for SelectParameters {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerSideEncryption(Cow<'static, str>);
 
 impl ServerSideEncryption {
@@ -18993,7 +19966,7 @@ impl FromStr for ServerSideEncryption {
 /// </li>
 /// </ul>
 /// </note>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerSideEncryptionByDefault {
     /// <p>Amazon Web Services Key Management Service (KMS) customer managed key ID to use for the default
     /// encryption. </p>
@@ -19075,7 +20048,7 @@ impl fmt::Debug for ServerSideEncryptionByDefault {
 }
 
 /// <p>Specifies the default server-side-encryption configuration.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ServerSideEncryptionConfiguration {
     /// <p>Container for information about a particular server-side encryption configuration
     /// rule.</p>
@@ -19108,7 +20081,7 @@ impl fmt::Debug for ServerSideEncryptionConfiguration {
 /// </li>
 /// </ul>
 /// </note>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ServerSideEncryptionRule {
     /// <p>Specifies the default server-side encryption to apply to new objects in the bucket. If a
     /// PUT Object request doesn't specify any server-side encryption, this default encryption will
@@ -19195,6 +20168,17 @@ impl fmt::Debug for SessionCredentials {
     }
 }
 
+impl Default for SessionCredentials {
+    fn default() -> Self {
+        Self {
+            access_key_id: default(),
+            expiration: default(),
+            secret_access_key: default(),
+            session_token: default(),
+        }
+    }
+}
+
 pub type SessionExpiration = Timestamp;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19263,7 +20247,7 @@ pub type SourceIdentityType = String;
 /// objects. Currently, Amazon S3 supports only the filter that you can specify for objects created
 /// with server-side encryption using a customer managed key stored in Amazon Web Services Key Management Service
 /// (SSE-KMS).</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SourceSelectionCriteria {
     /// <p>A filter that you can specify for selections for modifications on replicas. Amazon S3 doesn't
     /// replicate replica modifications by default. In the latest version of replication
@@ -19296,7 +20280,7 @@ impl fmt::Debug for SourceSelectionCriteria {
 
 /// <p>A container for filter information for the selection of S3 objects encrypted with Amazon Web Services
 /// KMS.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct SseKmsEncryptedObjects {
     /// <p>Specifies whether Amazon S3 replicates objects created with server-side encryption using an
     /// Amazon Web Services KMS key stored in Amazon Web Services Key Management Service.</p>
@@ -19311,7 +20295,7 @@ impl fmt::Debug for SseKmsEncryptedObjects {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SseKmsEncryptedObjectsStatus(Cow<'static, str>);
 
 impl SseKmsEncryptedObjectsStatus {
@@ -19397,7 +20381,7 @@ impl fmt::Debug for StatsEvent {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StorageClass(Cow<'static, str>);
 
 impl StorageClass {
@@ -19455,7 +20439,7 @@ impl FromStr for StorageClass {
 
 /// <p>Specifies data related to access patterns to be collected and made available to analyze
 /// the tradeoffs between different storage classes for an Amazon S3 bucket.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct StorageClassAnalysis {
     /// <p>Specifies how data related to the storage class analysis for an Amazon S3 bucket should be
     /// exported.</p>
@@ -19474,7 +20458,7 @@ impl fmt::Debug for StorageClassAnalysis {
 
 /// <p>Container for data related to the storage class analysis for an Amazon S3 bucket for
 /// export.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct StorageClassAnalysisDataExport {
     /// <p>The place to store the data for an analysis.</p>
     pub destination: AnalyticsExportDestination,
@@ -19492,7 +20476,7 @@ impl fmt::Debug for StorageClassAnalysisDataExport {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StorageClassAnalysisSchemaVersion(Cow<'static, str>);
 
 impl StorageClassAnalysisSchemaVersion {
@@ -19709,7 +20693,7 @@ impl FromStr for Tier {
 /// <p>The S3 Intelligent-Tiering storage class is designed to optimize storage costs by
 /// automatically moving data to the most cost-effective storage access tier, without
 /// additional operational overhead.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Tiering {
     /// <p>S3 Intelligent-Tiering access tier. See <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/storage-class-intro.html#sc-dynamic-data-access">Storage class
     /// for automatically optimizing frequently and infrequently accessed objects</a> for a
@@ -19756,7 +20740,7 @@ pub type TopicArn = String;
 
 /// <p>A container for specifying the configuration for publication of messages to an Amazon
 /// Simple Notification Service (Amazon SNS) topic when Amazon S3 detects specified events.</p>
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct TopicConfiguration {
     /// <p>The Amazon S3 bucket event about which to send notifications. For more information, see
     /// <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/NotificationHowTo.html">Supported
@@ -19789,7 +20773,7 @@ pub type TopicConfigurationList = List<TopicConfiguration>;
 /// <p>Specifies when an object transitions to a specified storage class. For more information
 /// about Amazon S3 lifecycle configuration rules, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/dev/lifecycle-transition-general-considerations.html">Transitioning
 /// Objects Using Amazon S3 Lifecycle</a> in the <i>Amazon S3 User Guide</i>.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Transition {
     /// <p>Indicates when objects are transitioned to the specified storage class. The date value
     /// must be in ISO 8601 format. The time is always midnight UTC.</p>
@@ -19865,7 +20849,7 @@ impl FromStr for TransitionDefaultMinimumObjectSize {
 
 pub type TransitionList = List<Transition>;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TransitionStorageClass(Cow<'static, str>);
 
 impl TransitionStorageClass {
@@ -20260,6 +21244,7 @@ impl fmt::Debug for UploadPartCopyOutput {
     }
 }
 
+#[derive(Default)]
 pub struct UploadPartInput {
     /// <p>Object data.</p>
     pub body: Option<StreamingBlob>,
@@ -20524,7 +21509,7 @@ pub type VersionIdMarker = String;
 
 /// <p>Describes the versioning state of an Amazon S3 bucket. For more information, see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/RESTBucketPUTVersioningStatus.html">PUT
 /// Bucket versioning</a> in the <i>Amazon S3 API Reference</i>.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct VersioningConfiguration {
     /// <p>Specifies whether MFA delete is enabled in the bucket versioning configuration. This
     /// element is only returned if the bucket has been configured with MFA delete. If the bucket
@@ -20548,7 +21533,7 @@ impl fmt::Debug for VersioningConfiguration {
 }
 
 /// <p>Specifies website configuration parameters for an Amazon S3 bucket.</p>
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct WebsiteConfiguration {
     /// <p>The name of the error document for the website.</p>
     pub error_document: Option<ErrorDocument>,
@@ -20584,6 +21569,7 @@ impl fmt::Debug for WebsiteConfiguration {
 
 pub type WebsiteRedirectLocation = String;
 
+#[derive(Default)]
 pub struct WriteGetObjectResponseInput {
     /// <p>Indicates that a range of bytes was specified.</p>
     pub accept_ranges: Option<AcceptRanges>,
@@ -20959,6 +21945,7 @@ mod tests {
     use super::*;
 
     fn require_default<T: Default>() {}
+    fn require_clone<T: Clone>() {}
 
     #[test]
     fn test_default() {
@@ -20968,6 +21955,7 @@ mod tests {
         require_default::<CreateBucketOutput>();
         require_default::<CreateBucketMetadataTableConfigurationOutput>();
         require_default::<CreateMultipartUploadOutput>();
+        require_default::<CreateSessionOutput>();
         require_default::<DeleteBucketOutput>();
         require_default::<DeleteBucketAnalyticsConfigurationOutput>();
         require_default::<DeleteBucketCorsOutput>();
@@ -21023,11 +22011,13 @@ mod tests {
         require_default::<ListBucketInventoryConfigurationsOutput>();
         require_default::<ListBucketMetricsConfigurationsOutput>();
         require_default::<ListBucketsOutput>();
+        require_default::<ListDirectoryBucketsOutput>();
         require_default::<ListMultipartUploadsOutput>();
         require_default::<ListObjectVersionsOutput>();
         require_default::<ListObjectsOutput>();
         require_default::<ListObjectsV2Output>();
         require_default::<ListPartsOutput>();
+        require_default::<PostObjectOutput>();
         require_default::<PutBucketAccelerateConfigurationOutput>();
         require_default::<PutBucketAclOutput>();
         require_default::<PutBucketAnalyticsConfigurationOutput>();
@@ -21058,6 +22048,199 @@ mod tests {
         require_default::<UploadPartOutput>();
         require_default::<UploadPartCopyOutput>();
         require_default::<WriteGetObjectResponseOutput>();
+    }
+    #[test]
+    fn test_clone() {
+        require_clone::<AbortMultipartUploadInput>();
+        require_clone::<AbortMultipartUploadOutput>();
+        require_clone::<CompleteMultipartUploadInput>();
+        require_clone::<CopyObjectInput>();
+        require_clone::<CopyObjectOutput>();
+        require_clone::<CreateBucketInput>();
+        require_clone::<CreateBucketOutput>();
+        require_clone::<CreateBucketMetadataTableConfigurationInput>();
+        require_clone::<CreateBucketMetadataTableConfigurationOutput>();
+        require_clone::<CreateMultipartUploadInput>();
+        require_clone::<CreateMultipartUploadOutput>();
+        require_clone::<CreateSessionInput>();
+        require_clone::<CreateSessionOutput>();
+        require_clone::<DeleteBucketInput>();
+        require_clone::<DeleteBucketOutput>();
+        require_clone::<DeleteBucketAnalyticsConfigurationInput>();
+        require_clone::<DeleteBucketAnalyticsConfigurationOutput>();
+        require_clone::<DeleteBucketCorsInput>();
+        require_clone::<DeleteBucketCorsOutput>();
+        require_clone::<DeleteBucketEncryptionInput>();
+        require_clone::<DeleteBucketEncryptionOutput>();
+        require_clone::<DeleteBucketIntelligentTieringConfigurationInput>();
+        require_clone::<DeleteBucketIntelligentTieringConfigurationOutput>();
+        require_clone::<DeleteBucketInventoryConfigurationInput>();
+        require_clone::<DeleteBucketInventoryConfigurationOutput>();
+        require_clone::<DeleteBucketLifecycleInput>();
+        require_clone::<DeleteBucketLifecycleOutput>();
+        require_clone::<DeleteBucketMetadataTableConfigurationInput>();
+        require_clone::<DeleteBucketMetadataTableConfigurationOutput>();
+        require_clone::<DeleteBucketMetricsConfigurationInput>();
+        require_clone::<DeleteBucketMetricsConfigurationOutput>();
+        require_clone::<DeleteBucketOwnershipControlsInput>();
+        require_clone::<DeleteBucketOwnershipControlsOutput>();
+        require_clone::<DeleteBucketPolicyInput>();
+        require_clone::<DeleteBucketPolicyOutput>();
+        require_clone::<DeleteBucketReplicationInput>();
+        require_clone::<DeleteBucketReplicationOutput>();
+        require_clone::<DeleteBucketTaggingInput>();
+        require_clone::<DeleteBucketTaggingOutput>();
+        require_clone::<DeleteBucketWebsiteInput>();
+        require_clone::<DeleteBucketWebsiteOutput>();
+        require_clone::<DeleteObjectInput>();
+        require_clone::<DeleteObjectOutput>();
+        require_clone::<DeleteObjectTaggingInput>();
+        require_clone::<DeleteObjectTaggingOutput>();
+        require_clone::<DeleteObjectsInput>();
+        require_clone::<DeleteObjectsOutput>();
+        require_clone::<DeletePublicAccessBlockInput>();
+        require_clone::<DeletePublicAccessBlockOutput>();
+        require_clone::<GetBucketAccelerateConfigurationInput>();
+        require_clone::<GetBucketAccelerateConfigurationOutput>();
+        require_clone::<GetBucketAclInput>();
+        require_clone::<GetBucketAclOutput>();
+        require_clone::<GetBucketAnalyticsConfigurationInput>();
+        require_clone::<GetBucketAnalyticsConfigurationOutput>();
+        require_clone::<GetBucketCorsInput>();
+        require_clone::<GetBucketCorsOutput>();
+        require_clone::<GetBucketEncryptionInput>();
+        require_clone::<GetBucketEncryptionOutput>();
+        require_clone::<GetBucketIntelligentTieringConfigurationInput>();
+        require_clone::<GetBucketIntelligentTieringConfigurationOutput>();
+        require_clone::<GetBucketInventoryConfigurationInput>();
+        require_clone::<GetBucketInventoryConfigurationOutput>();
+        require_clone::<GetBucketLifecycleConfigurationInput>();
+        require_clone::<GetBucketLifecycleConfigurationOutput>();
+        require_clone::<GetBucketLocationInput>();
+        require_clone::<GetBucketLocationOutput>();
+        require_clone::<GetBucketLoggingInput>();
+        require_clone::<GetBucketLoggingOutput>();
+        require_clone::<GetBucketMetadataTableConfigurationInput>();
+        require_clone::<GetBucketMetadataTableConfigurationOutput>();
+        require_clone::<GetBucketMetricsConfigurationInput>();
+        require_clone::<GetBucketMetricsConfigurationOutput>();
+        require_clone::<GetBucketNotificationConfigurationInput>();
+        require_clone::<GetBucketNotificationConfigurationOutput>();
+        require_clone::<GetBucketOwnershipControlsInput>();
+        require_clone::<GetBucketOwnershipControlsOutput>();
+        require_clone::<GetBucketPolicyInput>();
+        require_clone::<GetBucketPolicyOutput>();
+        require_clone::<GetBucketPolicyStatusInput>();
+        require_clone::<GetBucketPolicyStatusOutput>();
+        require_clone::<GetBucketReplicationInput>();
+        require_clone::<GetBucketReplicationOutput>();
+        require_clone::<GetBucketRequestPaymentInput>();
+        require_clone::<GetBucketRequestPaymentOutput>();
+        require_clone::<GetBucketTaggingInput>();
+        require_clone::<GetBucketTaggingOutput>();
+        require_clone::<GetBucketVersioningInput>();
+        require_clone::<GetBucketVersioningOutput>();
+        require_clone::<GetBucketWebsiteInput>();
+        require_clone::<GetBucketWebsiteOutput>();
+        require_clone::<GetObjectInput>();
+        require_clone::<GetObjectAclInput>();
+        require_clone::<GetObjectAclOutput>();
+        require_clone::<GetObjectAttributesInput>();
+        require_clone::<GetObjectAttributesOutput>();
+        require_clone::<GetObjectLegalHoldInput>();
+        require_clone::<GetObjectLegalHoldOutput>();
+        require_clone::<GetObjectLockConfigurationInput>();
+        require_clone::<GetObjectLockConfigurationOutput>();
+        require_clone::<GetObjectRetentionInput>();
+        require_clone::<GetObjectRetentionOutput>();
+        require_clone::<GetObjectTaggingInput>();
+        require_clone::<GetObjectTaggingOutput>();
+        require_clone::<GetObjectTorrentInput>();
+        require_clone::<GetPublicAccessBlockInput>();
+        require_clone::<GetPublicAccessBlockOutput>();
+        require_clone::<HeadBucketInput>();
+        require_clone::<HeadBucketOutput>();
+        require_clone::<HeadObjectInput>();
+        require_clone::<HeadObjectOutput>();
+        require_clone::<ListBucketAnalyticsConfigurationsInput>();
+        require_clone::<ListBucketAnalyticsConfigurationsOutput>();
+        require_clone::<ListBucketIntelligentTieringConfigurationsInput>();
+        require_clone::<ListBucketIntelligentTieringConfigurationsOutput>();
+        require_clone::<ListBucketInventoryConfigurationsInput>();
+        require_clone::<ListBucketInventoryConfigurationsOutput>();
+        require_clone::<ListBucketMetricsConfigurationsInput>();
+        require_clone::<ListBucketMetricsConfigurationsOutput>();
+        require_clone::<ListBucketsInput>();
+        require_clone::<ListBucketsOutput>();
+        require_clone::<ListDirectoryBucketsInput>();
+        require_clone::<ListDirectoryBucketsOutput>();
+        require_clone::<ListMultipartUploadsInput>();
+        require_clone::<ListMultipartUploadsOutput>();
+        require_clone::<ListObjectVersionsInput>();
+        require_clone::<ListObjectVersionsOutput>();
+        require_clone::<ListObjectsInput>();
+        require_clone::<ListObjectsOutput>();
+        require_clone::<ListObjectsV2Input>();
+        require_clone::<ListObjectsV2Output>();
+        require_clone::<ListPartsInput>();
+        require_clone::<ListPartsOutput>();
+        require_clone::<PostObjectOutput>();
+        require_clone::<PutBucketAccelerateConfigurationInput>();
+        require_clone::<PutBucketAccelerateConfigurationOutput>();
+        require_clone::<PutBucketAclInput>();
+        require_clone::<PutBucketAclOutput>();
+        require_clone::<PutBucketAnalyticsConfigurationInput>();
+        require_clone::<PutBucketAnalyticsConfigurationOutput>();
+        require_clone::<PutBucketCorsInput>();
+        require_clone::<PutBucketCorsOutput>();
+        require_clone::<PutBucketEncryptionInput>();
+        require_clone::<PutBucketEncryptionOutput>();
+        require_clone::<PutBucketIntelligentTieringConfigurationInput>();
+        require_clone::<PutBucketIntelligentTieringConfigurationOutput>();
+        require_clone::<PutBucketInventoryConfigurationInput>();
+        require_clone::<PutBucketInventoryConfigurationOutput>();
+        require_clone::<PutBucketLifecycleConfigurationInput>();
+        require_clone::<PutBucketLifecycleConfigurationOutput>();
+        require_clone::<PutBucketLoggingInput>();
+        require_clone::<PutBucketLoggingOutput>();
+        require_clone::<PutBucketMetricsConfigurationInput>();
+        require_clone::<PutBucketMetricsConfigurationOutput>();
+        require_clone::<PutBucketNotificationConfigurationInput>();
+        require_clone::<PutBucketNotificationConfigurationOutput>();
+        require_clone::<PutBucketOwnershipControlsInput>();
+        require_clone::<PutBucketOwnershipControlsOutput>();
+        require_clone::<PutBucketPolicyInput>();
+        require_clone::<PutBucketPolicyOutput>();
+        require_clone::<PutBucketReplicationInput>();
+        require_clone::<PutBucketReplicationOutput>();
+        require_clone::<PutBucketRequestPaymentInput>();
+        require_clone::<PutBucketRequestPaymentOutput>();
+        require_clone::<PutBucketTaggingInput>();
+        require_clone::<PutBucketTaggingOutput>();
+        require_clone::<PutBucketVersioningInput>();
+        require_clone::<PutBucketVersioningOutput>();
+        require_clone::<PutBucketWebsiteInput>();
+        require_clone::<PutBucketWebsiteOutput>();
+        require_clone::<PutObjectOutput>();
+        require_clone::<PutObjectAclInput>();
+        require_clone::<PutObjectAclOutput>();
+        require_clone::<PutObjectLegalHoldInput>();
+        require_clone::<PutObjectLegalHoldOutput>();
+        require_clone::<PutObjectLockConfigurationInput>();
+        require_clone::<PutObjectLockConfigurationOutput>();
+        require_clone::<PutObjectRetentionInput>();
+        require_clone::<PutObjectRetentionOutput>();
+        require_clone::<PutObjectTaggingInput>();
+        require_clone::<PutObjectTaggingOutput>();
+        require_clone::<PutPublicAccessBlockInput>();
+        require_clone::<PutPublicAccessBlockOutput>();
+        require_clone::<RestoreObjectInput>();
+        require_clone::<RestoreObjectOutput>();
+        require_clone::<SelectObjectContentInput>();
+        require_clone::<UploadPartOutput>();
+        require_clone::<UploadPartCopyInput>();
+        require_clone::<UploadPartCopyOutput>();
+        require_clone::<WriteGetObjectResponseOutput>();
     }
 }
 pub mod builders {
@@ -22795,6 +23978,107 @@ pub mod builders {
                 storage_class,
                 tagging,
                 website_redirect_location,
+            })
+        }
+    }
+
+    /// A builder for [`CreateSessionInput`]
+    #[derive(Default)]
+    pub struct CreateSessionInputBuilder {
+        bucket: Option<BucketName>,
+
+        bucket_key_enabled: Option<BucketKeyEnabled>,
+
+        ssekms_encryption_context: Option<SSEKMSEncryptionContext>,
+
+        ssekms_key_id: Option<SSEKMSKeyId>,
+
+        server_side_encryption: Option<ServerSideEncryption>,
+
+        session_mode: Option<SessionMode>,
+    }
+
+    impl CreateSessionInputBuilder {
+        pub fn set_bucket(&mut self, field: BucketName) -> &mut Self {
+            self.bucket = Some(field);
+            self
+        }
+
+        pub fn set_bucket_key_enabled(&mut self, field: Option<BucketKeyEnabled>) -> &mut Self {
+            self.bucket_key_enabled = field;
+            self
+        }
+
+        pub fn set_ssekms_encryption_context(&mut self, field: Option<SSEKMSEncryptionContext>) -> &mut Self {
+            self.ssekms_encryption_context = field;
+            self
+        }
+
+        pub fn set_ssekms_key_id(&mut self, field: Option<SSEKMSKeyId>) -> &mut Self {
+            self.ssekms_key_id = field;
+            self
+        }
+
+        pub fn set_server_side_encryption(&mut self, field: Option<ServerSideEncryption>) -> &mut Self {
+            self.server_side_encryption = field;
+            self
+        }
+
+        pub fn set_session_mode(&mut self, field: Option<SessionMode>) -> &mut Self {
+            self.session_mode = field;
+            self
+        }
+
+        #[must_use]
+        pub fn bucket(mut self, field: BucketName) -> Self {
+            self.bucket = Some(field);
+            self
+        }
+
+        #[must_use]
+        pub fn bucket_key_enabled(mut self, field: Option<BucketKeyEnabled>) -> Self {
+            self.bucket_key_enabled = field;
+            self
+        }
+
+        #[must_use]
+        pub fn ssekms_encryption_context(mut self, field: Option<SSEKMSEncryptionContext>) -> Self {
+            self.ssekms_encryption_context = field;
+            self
+        }
+
+        #[must_use]
+        pub fn ssekms_key_id(mut self, field: Option<SSEKMSKeyId>) -> Self {
+            self.ssekms_key_id = field;
+            self
+        }
+
+        #[must_use]
+        pub fn server_side_encryption(mut self, field: Option<ServerSideEncryption>) -> Self {
+            self.server_side_encryption = field;
+            self
+        }
+
+        #[must_use]
+        pub fn session_mode(mut self, field: Option<SessionMode>) -> Self {
+            self.session_mode = field;
+            self
+        }
+
+        pub fn build(self) -> Result<CreateSessionInput, BuildError> {
+            let bucket = self.bucket.ok_or_else(|| BuildError::missing_field("bucket"))?;
+            let bucket_key_enabled = self.bucket_key_enabled;
+            let ssekms_encryption_context = self.ssekms_encryption_context;
+            let ssekms_key_id = self.ssekms_key_id;
+            let server_side_encryption = self.server_side_encryption;
+            let session_mode = self.session_mode;
+            Ok(CreateSessionInput {
+                bucket,
+                bucket_key_enabled,
+                ssekms_encryption_context,
+                ssekms_key_id,
+                server_side_encryption,
+                session_mode,
             })
         }
     }
@@ -26368,6 +27652,47 @@ pub mod builders {
         }
     }
 
+    /// A builder for [`ListDirectoryBucketsInput`]
+    #[derive(Default)]
+    pub struct ListDirectoryBucketsInputBuilder {
+        continuation_token: Option<DirectoryBucketToken>,
+
+        max_directory_buckets: Option<MaxDirectoryBuckets>,
+    }
+
+    impl ListDirectoryBucketsInputBuilder {
+        pub fn set_continuation_token(&mut self, field: Option<DirectoryBucketToken>) -> &mut Self {
+            self.continuation_token = field;
+            self
+        }
+
+        pub fn set_max_directory_buckets(&mut self, field: Option<MaxDirectoryBuckets>) -> &mut Self {
+            self.max_directory_buckets = field;
+            self
+        }
+
+        #[must_use]
+        pub fn continuation_token(mut self, field: Option<DirectoryBucketToken>) -> Self {
+            self.continuation_token = field;
+            self
+        }
+
+        #[must_use]
+        pub fn max_directory_buckets(mut self, field: Option<MaxDirectoryBuckets>) -> Self {
+            self.max_directory_buckets = field;
+            self
+        }
+
+        pub fn build(self) -> Result<ListDirectoryBucketsInput, BuildError> {
+            let continuation_token = self.continuation_token;
+            let max_directory_buckets = self.max_directory_buckets;
+            Ok(ListDirectoryBucketsInput {
+                continuation_token,
+                max_directory_buckets,
+            })
+        }
+    }
+
     /// A builder for [`ListMultipartUploadsInput`]
     #[derive(Default)]
     pub struct ListMultipartUploadsInputBuilder {
@@ -27154,6 +28479,677 @@ pub mod builders {
                 sse_customer_key,
                 sse_customer_key_md5,
                 upload_id,
+            })
+        }
+    }
+
+    /// A builder for [`PostObjectInput`]
+    #[derive(Default)]
+    pub struct PostObjectInputBuilder {
+        acl: Option<ObjectCannedACL>,
+
+        body: Option<StreamingBlob>,
+
+        bucket: Option<BucketName>,
+
+        bucket_key_enabled: Option<BucketKeyEnabled>,
+
+        cache_control: Option<CacheControl>,
+
+        checksum_algorithm: Option<ChecksumAlgorithm>,
+
+        checksum_crc32: Option<ChecksumCRC32>,
+
+        checksum_crc32c: Option<ChecksumCRC32C>,
+
+        checksum_crc64nvme: Option<ChecksumCRC64NVME>,
+
+        checksum_sha1: Option<ChecksumSHA1>,
+
+        checksum_sha256: Option<ChecksumSHA256>,
+
+        content_disposition: Option<ContentDisposition>,
+
+        content_encoding: Option<ContentEncoding>,
+
+        content_language: Option<ContentLanguage>,
+
+        content_length: Option<ContentLength>,
+
+        content_md5: Option<ContentMD5>,
+
+        content_type: Option<ContentType>,
+
+        expected_bucket_owner: Option<AccountId>,
+
+        expires: Option<Expires>,
+
+        grant_full_control: Option<GrantFullControl>,
+
+        grant_read: Option<GrantRead>,
+
+        grant_read_acp: Option<GrantReadACP>,
+
+        grant_write_acp: Option<GrantWriteACP>,
+
+        if_match: Option<IfMatch>,
+
+        if_none_match: Option<IfNoneMatch>,
+
+        key: Option<ObjectKey>,
+
+        metadata: Option<Metadata>,
+
+        object_lock_legal_hold_status: Option<ObjectLockLegalHoldStatus>,
+
+        object_lock_mode: Option<ObjectLockMode>,
+
+        object_lock_retain_until_date: Option<ObjectLockRetainUntilDate>,
+
+        request_payer: Option<RequestPayer>,
+
+        sse_customer_algorithm: Option<SSECustomerAlgorithm>,
+
+        sse_customer_key: Option<SSECustomerKey>,
+
+        sse_customer_key_md5: Option<SSECustomerKeyMD5>,
+
+        ssekms_encryption_context: Option<SSEKMSEncryptionContext>,
+
+        ssekms_key_id: Option<SSEKMSKeyId>,
+
+        server_side_encryption: Option<ServerSideEncryption>,
+
+        storage_class: Option<StorageClass>,
+
+        tagging: Option<TaggingHeader>,
+
+        website_redirect_location: Option<WebsiteRedirectLocation>,
+
+        write_offset_bytes: Option<WriteOffsetBytes>,
+
+        success_action_redirect: Option<String>,
+
+        success_action_status: Option<i32>,
+
+        policy: Option<PostPolicy>,
+    }
+
+    impl PostObjectInputBuilder {
+        pub fn set_acl(&mut self, field: Option<ObjectCannedACL>) -> &mut Self {
+            self.acl = field;
+            self
+        }
+
+        pub fn set_body(&mut self, field: Option<StreamingBlob>) -> &mut Self {
+            self.body = field;
+            self
+        }
+
+        pub fn set_bucket(&mut self, field: BucketName) -> &mut Self {
+            self.bucket = Some(field);
+            self
+        }
+
+        pub fn set_bucket_key_enabled(&mut self, field: Option<BucketKeyEnabled>) -> &mut Self {
+            self.bucket_key_enabled = field;
+            self
+        }
+
+        pub fn set_cache_control(&mut self, field: Option<CacheControl>) -> &mut Self {
+            self.cache_control = field;
+            self
+        }
+
+        pub fn set_checksum_algorithm(&mut self, field: Option<ChecksumAlgorithm>) -> &mut Self {
+            self.checksum_algorithm = field;
+            self
+        }
+
+        pub fn set_checksum_crc32(&mut self, field: Option<ChecksumCRC32>) -> &mut Self {
+            self.checksum_crc32 = field;
+            self
+        }
+
+        pub fn set_checksum_crc32c(&mut self, field: Option<ChecksumCRC32C>) -> &mut Self {
+            self.checksum_crc32c = field;
+            self
+        }
+
+        pub fn set_checksum_crc64nvme(&mut self, field: Option<ChecksumCRC64NVME>) -> &mut Self {
+            self.checksum_crc64nvme = field;
+            self
+        }
+
+        pub fn set_checksum_sha1(&mut self, field: Option<ChecksumSHA1>) -> &mut Self {
+            self.checksum_sha1 = field;
+            self
+        }
+
+        pub fn set_checksum_sha256(&mut self, field: Option<ChecksumSHA256>) -> &mut Self {
+            self.checksum_sha256 = field;
+            self
+        }
+
+        pub fn set_content_disposition(&mut self, field: Option<ContentDisposition>) -> &mut Self {
+            self.content_disposition = field;
+            self
+        }
+
+        pub fn set_content_encoding(&mut self, field: Option<ContentEncoding>) -> &mut Self {
+            self.content_encoding = field;
+            self
+        }
+
+        pub fn set_content_language(&mut self, field: Option<ContentLanguage>) -> &mut Self {
+            self.content_language = field;
+            self
+        }
+
+        pub fn set_content_length(&mut self, field: Option<ContentLength>) -> &mut Self {
+            self.content_length = field;
+            self
+        }
+
+        pub fn set_content_md5(&mut self, field: Option<ContentMD5>) -> &mut Self {
+            self.content_md5 = field;
+            self
+        }
+
+        pub fn set_content_type(&mut self, field: Option<ContentType>) -> &mut Self {
+            self.content_type = field;
+            self
+        }
+
+        pub fn set_expected_bucket_owner(&mut self, field: Option<AccountId>) -> &mut Self {
+            self.expected_bucket_owner = field;
+            self
+        }
+
+        pub fn set_expires(&mut self, field: Option<Expires>) -> &mut Self {
+            self.expires = field;
+            self
+        }
+
+        pub fn set_grant_full_control(&mut self, field: Option<GrantFullControl>) -> &mut Self {
+            self.grant_full_control = field;
+            self
+        }
+
+        pub fn set_grant_read(&mut self, field: Option<GrantRead>) -> &mut Self {
+            self.grant_read = field;
+            self
+        }
+
+        pub fn set_grant_read_acp(&mut self, field: Option<GrantReadACP>) -> &mut Self {
+            self.grant_read_acp = field;
+            self
+        }
+
+        pub fn set_grant_write_acp(&mut self, field: Option<GrantWriteACP>) -> &mut Self {
+            self.grant_write_acp = field;
+            self
+        }
+
+        pub fn set_if_match(&mut self, field: Option<IfMatch>) -> &mut Self {
+            self.if_match = field;
+            self
+        }
+
+        pub fn set_if_none_match(&mut self, field: Option<IfNoneMatch>) -> &mut Self {
+            self.if_none_match = field;
+            self
+        }
+
+        pub fn set_key(&mut self, field: ObjectKey) -> &mut Self {
+            self.key = Some(field);
+            self
+        }
+
+        pub fn set_metadata(&mut self, field: Option<Metadata>) -> &mut Self {
+            self.metadata = field;
+            self
+        }
+
+        pub fn set_object_lock_legal_hold_status(&mut self, field: Option<ObjectLockLegalHoldStatus>) -> &mut Self {
+            self.object_lock_legal_hold_status = field;
+            self
+        }
+
+        pub fn set_object_lock_mode(&mut self, field: Option<ObjectLockMode>) -> &mut Self {
+            self.object_lock_mode = field;
+            self
+        }
+
+        pub fn set_object_lock_retain_until_date(&mut self, field: Option<ObjectLockRetainUntilDate>) -> &mut Self {
+            self.object_lock_retain_until_date = field;
+            self
+        }
+
+        pub fn set_request_payer(&mut self, field: Option<RequestPayer>) -> &mut Self {
+            self.request_payer = field;
+            self
+        }
+
+        pub fn set_sse_customer_algorithm(&mut self, field: Option<SSECustomerAlgorithm>) -> &mut Self {
+            self.sse_customer_algorithm = field;
+            self
+        }
+
+        pub fn set_sse_customer_key(&mut self, field: Option<SSECustomerKey>) -> &mut Self {
+            self.sse_customer_key = field;
+            self
+        }
+
+        pub fn set_sse_customer_key_md5(&mut self, field: Option<SSECustomerKeyMD5>) -> &mut Self {
+            self.sse_customer_key_md5 = field;
+            self
+        }
+
+        pub fn set_ssekms_encryption_context(&mut self, field: Option<SSEKMSEncryptionContext>) -> &mut Self {
+            self.ssekms_encryption_context = field;
+            self
+        }
+
+        pub fn set_ssekms_key_id(&mut self, field: Option<SSEKMSKeyId>) -> &mut Self {
+            self.ssekms_key_id = field;
+            self
+        }
+
+        pub fn set_server_side_encryption(&mut self, field: Option<ServerSideEncryption>) -> &mut Self {
+            self.server_side_encryption = field;
+            self
+        }
+
+        pub fn set_storage_class(&mut self, field: Option<StorageClass>) -> &mut Self {
+            self.storage_class = field;
+            self
+        }
+
+        pub fn set_tagging(&mut self, field: Option<TaggingHeader>) -> &mut Self {
+            self.tagging = field;
+            self
+        }
+
+        pub fn set_website_redirect_location(&mut self, field: Option<WebsiteRedirectLocation>) -> &mut Self {
+            self.website_redirect_location = field;
+            self
+        }
+
+        pub fn set_write_offset_bytes(&mut self, field: Option<WriteOffsetBytes>) -> &mut Self {
+            self.write_offset_bytes = field;
+            self
+        }
+
+        pub fn set_success_action_redirect(&mut self, field: Option<String>) -> &mut Self {
+            self.success_action_redirect = field;
+            self
+        }
+
+        pub fn set_success_action_status(&mut self, field: Option<i32>) -> &mut Self {
+            self.success_action_status = field;
+            self
+        }
+
+        pub fn set_policy(&mut self, field: Option<PostPolicy>) -> &mut Self {
+            self.policy = field;
+            self
+        }
+
+        #[must_use]
+        pub fn acl(mut self, field: Option<ObjectCannedACL>) -> Self {
+            self.acl = field;
+            self
+        }
+
+        #[must_use]
+        pub fn body(mut self, field: Option<StreamingBlob>) -> Self {
+            self.body = field;
+            self
+        }
+
+        #[must_use]
+        pub fn bucket(mut self, field: BucketName) -> Self {
+            self.bucket = Some(field);
+            self
+        }
+
+        #[must_use]
+        pub fn bucket_key_enabled(mut self, field: Option<BucketKeyEnabled>) -> Self {
+            self.bucket_key_enabled = field;
+            self
+        }
+
+        #[must_use]
+        pub fn cache_control(mut self, field: Option<CacheControl>) -> Self {
+            self.cache_control = field;
+            self
+        }
+
+        #[must_use]
+        pub fn checksum_algorithm(mut self, field: Option<ChecksumAlgorithm>) -> Self {
+            self.checksum_algorithm = field;
+            self
+        }
+
+        #[must_use]
+        pub fn checksum_crc32(mut self, field: Option<ChecksumCRC32>) -> Self {
+            self.checksum_crc32 = field;
+            self
+        }
+
+        #[must_use]
+        pub fn checksum_crc32c(mut self, field: Option<ChecksumCRC32C>) -> Self {
+            self.checksum_crc32c = field;
+            self
+        }
+
+        #[must_use]
+        pub fn checksum_crc64nvme(mut self, field: Option<ChecksumCRC64NVME>) -> Self {
+            self.checksum_crc64nvme = field;
+            self
+        }
+
+        #[must_use]
+        pub fn checksum_sha1(mut self, field: Option<ChecksumSHA1>) -> Self {
+            self.checksum_sha1 = field;
+            self
+        }
+
+        #[must_use]
+        pub fn checksum_sha256(mut self, field: Option<ChecksumSHA256>) -> Self {
+            self.checksum_sha256 = field;
+            self
+        }
+
+        #[must_use]
+        pub fn content_disposition(mut self, field: Option<ContentDisposition>) -> Self {
+            self.content_disposition = field;
+            self
+        }
+
+        #[must_use]
+        pub fn content_encoding(mut self, field: Option<ContentEncoding>) -> Self {
+            self.content_encoding = field;
+            self
+        }
+
+        #[must_use]
+        pub fn content_language(mut self, field: Option<ContentLanguage>) -> Self {
+            self.content_language = field;
+            self
+        }
+
+        #[must_use]
+        pub fn content_length(mut self, field: Option<ContentLength>) -> Self {
+            self.content_length = field;
+            self
+        }
+
+        #[must_use]
+        pub fn content_md5(mut self, field: Option<ContentMD5>) -> Self {
+            self.content_md5 = field;
+            self
+        }
+
+        #[must_use]
+        pub fn content_type(mut self, field: Option<ContentType>) -> Self {
+            self.content_type = field;
+            self
+        }
+
+        #[must_use]
+        pub fn expected_bucket_owner(mut self, field: Option<AccountId>) -> Self {
+            self.expected_bucket_owner = field;
+            self
+        }
+
+        #[must_use]
+        pub fn expires(mut self, field: Option<Expires>) -> Self {
+            self.expires = field;
+            self
+        }
+
+        #[must_use]
+        pub fn grant_full_control(mut self, field: Option<GrantFullControl>) -> Self {
+            self.grant_full_control = field;
+            self
+        }
+
+        #[must_use]
+        pub fn grant_read(mut self, field: Option<GrantRead>) -> Self {
+            self.grant_read = field;
+            self
+        }
+
+        #[must_use]
+        pub fn grant_read_acp(mut self, field: Option<GrantReadACP>) -> Self {
+            self.grant_read_acp = field;
+            self
+        }
+
+        #[must_use]
+        pub fn grant_write_acp(mut self, field: Option<GrantWriteACP>) -> Self {
+            self.grant_write_acp = field;
+            self
+        }
+
+        #[must_use]
+        pub fn if_match(mut self, field: Option<IfMatch>) -> Self {
+            self.if_match = field;
+            self
+        }
+
+        #[must_use]
+        pub fn if_none_match(mut self, field: Option<IfNoneMatch>) -> Self {
+            self.if_none_match = field;
+            self
+        }
+
+        #[must_use]
+        pub fn key(mut self, field: ObjectKey) -> Self {
+            self.key = Some(field);
+            self
+        }
+
+        #[must_use]
+        pub fn metadata(mut self, field: Option<Metadata>) -> Self {
+            self.metadata = field;
+            self
+        }
+
+        #[must_use]
+        pub fn object_lock_legal_hold_status(mut self, field: Option<ObjectLockLegalHoldStatus>) -> Self {
+            self.object_lock_legal_hold_status = field;
+            self
+        }
+
+        #[must_use]
+        pub fn object_lock_mode(mut self, field: Option<ObjectLockMode>) -> Self {
+            self.object_lock_mode = field;
+            self
+        }
+
+        #[must_use]
+        pub fn object_lock_retain_until_date(mut self, field: Option<ObjectLockRetainUntilDate>) -> Self {
+            self.object_lock_retain_until_date = field;
+            self
+        }
+
+        #[must_use]
+        pub fn request_payer(mut self, field: Option<RequestPayer>) -> Self {
+            self.request_payer = field;
+            self
+        }
+
+        #[must_use]
+        pub fn sse_customer_algorithm(mut self, field: Option<SSECustomerAlgorithm>) -> Self {
+            self.sse_customer_algorithm = field;
+            self
+        }
+
+        #[must_use]
+        pub fn sse_customer_key(mut self, field: Option<SSECustomerKey>) -> Self {
+            self.sse_customer_key = field;
+            self
+        }
+
+        #[must_use]
+        pub fn sse_customer_key_md5(mut self, field: Option<SSECustomerKeyMD5>) -> Self {
+            self.sse_customer_key_md5 = field;
+            self
+        }
+
+        #[must_use]
+        pub fn ssekms_encryption_context(mut self, field: Option<SSEKMSEncryptionContext>) -> Self {
+            self.ssekms_encryption_context = field;
+            self
+        }
+
+        #[must_use]
+        pub fn ssekms_key_id(mut self, field: Option<SSEKMSKeyId>) -> Self {
+            self.ssekms_key_id = field;
+            self
+        }
+
+        #[must_use]
+        pub fn server_side_encryption(mut self, field: Option<ServerSideEncryption>) -> Self {
+            self.server_side_encryption = field;
+            self
+        }
+
+        #[must_use]
+        pub fn storage_class(mut self, field: Option<StorageClass>) -> Self {
+            self.storage_class = field;
+            self
+        }
+
+        #[must_use]
+        pub fn tagging(mut self, field: Option<TaggingHeader>) -> Self {
+            self.tagging = field;
+            self
+        }
+
+        #[must_use]
+        pub fn website_redirect_location(mut self, field: Option<WebsiteRedirectLocation>) -> Self {
+            self.website_redirect_location = field;
+            self
+        }
+
+        #[must_use]
+        pub fn write_offset_bytes(mut self, field: Option<WriteOffsetBytes>) -> Self {
+            self.write_offset_bytes = field;
+            self
+        }
+
+        #[must_use]
+        pub fn success_action_redirect(mut self, field: Option<String>) -> Self {
+            self.success_action_redirect = field;
+            self
+        }
+
+        #[must_use]
+        pub fn success_action_status(mut self, field: Option<i32>) -> Self {
+            self.success_action_status = field;
+            self
+        }
+
+        #[must_use]
+        pub fn policy(mut self, field: Option<PostPolicy>) -> Self {
+            self.policy = field;
+            self
+        }
+
+        pub fn build(self) -> Result<PostObjectInput, BuildError> {
+            let acl = self.acl;
+            let body = self.body;
+            let bucket = self.bucket.ok_or_else(|| BuildError::missing_field("bucket"))?;
+            let bucket_key_enabled = self.bucket_key_enabled;
+            let cache_control = self.cache_control;
+            let checksum_algorithm = self.checksum_algorithm;
+            let checksum_crc32 = self.checksum_crc32;
+            let checksum_crc32c = self.checksum_crc32c;
+            let checksum_crc64nvme = self.checksum_crc64nvme;
+            let checksum_sha1 = self.checksum_sha1;
+            let checksum_sha256 = self.checksum_sha256;
+            let content_disposition = self.content_disposition;
+            let content_encoding = self.content_encoding;
+            let content_language = self.content_language;
+            let content_length = self.content_length;
+            let content_md5 = self.content_md5;
+            let content_type = self.content_type;
+            let expected_bucket_owner = self.expected_bucket_owner;
+            let expires = self.expires;
+            let grant_full_control = self.grant_full_control;
+            let grant_read = self.grant_read;
+            let grant_read_acp = self.grant_read_acp;
+            let grant_write_acp = self.grant_write_acp;
+            let if_match = self.if_match;
+            let if_none_match = self.if_none_match;
+            let key = self.key.ok_or_else(|| BuildError::missing_field("key"))?;
+            let metadata = self.metadata;
+            let object_lock_legal_hold_status = self.object_lock_legal_hold_status;
+            let object_lock_mode = self.object_lock_mode;
+            let object_lock_retain_until_date = self.object_lock_retain_until_date;
+            let request_payer = self.request_payer;
+            let sse_customer_algorithm = self.sse_customer_algorithm;
+            let sse_customer_key = self.sse_customer_key;
+            let sse_customer_key_md5 = self.sse_customer_key_md5;
+            let ssekms_encryption_context = self.ssekms_encryption_context;
+            let ssekms_key_id = self.ssekms_key_id;
+            let server_side_encryption = self.server_side_encryption;
+            let storage_class = self.storage_class;
+            let tagging = self.tagging;
+            let website_redirect_location = self.website_redirect_location;
+            let write_offset_bytes = self.write_offset_bytes;
+            let success_action_redirect = self.success_action_redirect;
+            let success_action_status = self.success_action_status;
+            let policy = self.policy;
+            Ok(PostObjectInput {
+                acl,
+                body,
+                bucket,
+                bucket_key_enabled,
+                cache_control,
+                checksum_algorithm,
+                checksum_crc32,
+                checksum_crc32c,
+                checksum_crc64nvme,
+                checksum_sha1,
+                checksum_sha256,
+                content_disposition,
+                content_encoding,
+                content_language,
+                content_length,
+                content_md5,
+                content_type,
+                expected_bucket_owner,
+                expires,
+                grant_full_control,
+                grant_read,
+                grant_read_acp,
+                grant_write_acp,
+                if_match,
+                if_none_match,
+                key,
+                metadata,
+                object_lock_legal_hold_status,
+                object_lock_mode,
+                object_lock_retain_until_date,
+                request_payer,
+                sse_customer_algorithm,
+                sse_customer_key,
+                sse_customer_key_md5,
+                ssekms_encryption_context,
+                ssekms_key_id,
+                server_side_encryption,
+                storage_class,
+                tagging,
+                website_redirect_location,
+                write_offset_bytes,
+                success_action_redirect,
+                success_action_status,
+                policy,
             })
         }
     }
@@ -31658,28 +33654,28 @@ impl DtoExt for AbortMultipartUploadInput {
         if self.expected_bucket_owner.as_deref() == Some("") {
             self.expected_bucket_owner = None;
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
     }
 }
 impl DtoExt for AbortMultipartUploadOutput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
     }
 }
 impl DtoExt for AccelerateConfiguration {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.status {
-            if val.as_str() == "" {
-                self.status = None;
-            }
+        if let Some(ref val) = self.status
+            && val.as_str() == ""
+        {
+            self.status = None;
         }
     }
 }
@@ -31748,15 +33744,15 @@ impl DtoExt for Bucket {
 }
 impl DtoExt for BucketInfo {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.data_redundancy {
-            if val.as_str() == "" {
-                self.data_redundancy = None;
-            }
+        if let Some(ref val) = self.data_redundancy
+            && val.as_str() == ""
+        {
+            self.data_redundancy = None;
         }
-        if let Some(ref val) = self.type_ {
-            if val.as_str() == "" {
-                self.type_ = None;
-            }
+        if let Some(ref val) = self.type_
+            && val.as_str() == ""
+        {
+            self.type_ = None;
         }
     }
 }
@@ -31788,10 +33784,10 @@ impl DtoExt for CSVInput {
         if self.field_delimiter.as_deref() == Some("") {
             self.field_delimiter = None;
         }
-        if let Some(ref val) = self.file_header_info {
-            if val.as_str() == "" {
-                self.file_header_info = None;
-            }
+        if let Some(ref val) = self.file_header_info
+            && val.as_str() == ""
+        {
+            self.file_header_info = None;
         }
         if self.quote_character.as_deref() == Some("") {
             self.quote_character = None;
@@ -31815,10 +33811,10 @@ impl DtoExt for CSVOutput {
         if self.quote_escape_character.as_deref() == Some("") {
             self.quote_escape_character = None;
         }
-        if let Some(ref val) = self.quote_fields {
-            if val.as_str() == "" {
-                self.quote_fields = None;
-            }
+        if let Some(ref val) = self.quote_fields
+            && val.as_str() == ""
+        {
+            self.quote_fields = None;
         }
         if self.record_delimiter.as_deref() == Some("") {
             self.record_delimiter = None;
@@ -31842,10 +33838,10 @@ impl DtoExt for Checksum {
         if self.checksum_sha256.as_deref() == Some("") {
             self.checksum_sha256 = None;
         }
-        if let Some(ref val) = self.checksum_type {
-            if val.as_str() == "" {
-                self.checksum_type = None;
-            }
+        if let Some(ref val) = self.checksum_type
+            && val.as_str() == ""
+        {
+            self.checksum_type = None;
         }
     }
 }
@@ -31873,27 +33869,21 @@ impl DtoExt for CompleteMultipartUploadInput {
         if self.checksum_sha256.as_deref() == Some("") {
             self.checksum_sha256 = None;
         }
-        if let Some(ref val) = self.checksum_type {
-            if val.as_str() == "" {
-                self.checksum_type = None;
-            }
+        if let Some(ref val) = self.checksum_type
+            && val.as_str() == ""
+        {
+            self.checksum_type = None;
         }
         if self.expected_bucket_owner.as_deref() == Some("") {
             self.expected_bucket_owner = None;
         }
-        if self.if_match.as_deref() == Some("") {
-            self.if_match = None;
-        }
-        if self.if_none_match.as_deref() == Some("") {
-            self.if_none_match = None;
-        }
         if let Some(ref mut val) = self.multipart_upload {
             val.ignore_empty_strings();
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
         if self.sse_customer_algorithm.as_deref() == Some("") {
             self.sse_customer_algorithm = None;
@@ -31926,10 +33916,10 @@ impl DtoExt for CompleteMultipartUploadOutput {
         if self.checksum_sha256.as_deref() == Some("") {
             self.checksum_sha256 = None;
         }
-        if let Some(ref val) = self.checksum_type {
-            if val.as_str() == "" {
-                self.checksum_type = None;
-            }
+        if let Some(ref val) = self.checksum_type
+            && val.as_str() == ""
+        {
+            self.checksum_type = None;
         }
         if self.expiration.as_deref() == Some("") {
             self.expiration = None;
@@ -31940,18 +33930,18 @@ impl DtoExt for CompleteMultipartUploadOutput {
         if self.location.as_deref() == Some("") {
             self.location = None;
         }
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
         if self.ssekms_key_id.as_deref() == Some("") {
             self.ssekms_key_id = None;
         }
-        if let Some(ref val) = self.server_side_encryption {
-            if val.as_str() == "" {
-                self.server_side_encryption = None;
-            }
+        if let Some(ref val) = self.server_side_encryption
+            && val.as_str() == ""
+        {
+            self.server_side_encryption = None;
         }
         if self.version_id.as_deref() == Some("") {
             self.version_id = None;
@@ -31992,18 +33982,18 @@ impl DtoExt for Condition {
 }
 impl DtoExt for CopyObjectInput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.acl {
-            if val.as_str() == "" {
-                self.acl = None;
-            }
+        if let Some(ref val) = self.acl
+            && val.as_str() == ""
+        {
+            self.acl = None;
         }
         if self.cache_control.as_deref() == Some("") {
             self.cache_control = None;
         }
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
         }
         if self.content_disposition.as_deref() == Some("") {
             self.content_disposition = None;
@@ -32013,12 +34003,6 @@ impl DtoExt for CopyObjectInput {
         }
         if self.content_language.as_deref() == Some("") {
             self.content_language = None;
-        }
-        if self.copy_source_if_match.as_deref() == Some("") {
-            self.copy_source_if_match = None;
-        }
-        if self.copy_source_if_none_match.as_deref() == Some("") {
-            self.copy_source_if_none_match = None;
         }
         if self.copy_source_sse_customer_algorithm.as_deref() == Some("") {
             self.copy_source_sse_customer_algorithm = None;
@@ -32047,25 +34031,25 @@ impl DtoExt for CopyObjectInput {
         if self.grant_write_acp.as_deref() == Some("") {
             self.grant_write_acp = None;
         }
-        if let Some(ref val) = self.metadata_directive {
-            if val.as_str() == "" {
-                self.metadata_directive = None;
-            }
+        if let Some(ref val) = self.metadata_directive
+            && val.as_str() == ""
+        {
+            self.metadata_directive = None;
         }
-        if let Some(ref val) = self.object_lock_legal_hold_status {
-            if val.as_str() == "" {
-                self.object_lock_legal_hold_status = None;
-            }
+        if let Some(ref val) = self.object_lock_legal_hold_status
+            && val.as_str() == ""
+        {
+            self.object_lock_legal_hold_status = None;
         }
-        if let Some(ref val) = self.object_lock_mode {
-            if val.as_str() == "" {
-                self.object_lock_mode = None;
-            }
+        if let Some(ref val) = self.object_lock_mode
+            && val.as_str() == ""
+        {
+            self.object_lock_mode = None;
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
         if self.sse_customer_algorithm.as_deref() == Some("") {
             self.sse_customer_algorithm = None;
@@ -32082,23 +34066,23 @@ impl DtoExt for CopyObjectInput {
         if self.ssekms_key_id.as_deref() == Some("") {
             self.ssekms_key_id = None;
         }
-        if let Some(ref val) = self.server_side_encryption {
-            if val.as_str() == "" {
-                self.server_side_encryption = None;
-            }
+        if let Some(ref val) = self.server_side_encryption
+            && val.as_str() == ""
+        {
+            self.server_side_encryption = None;
         }
-        if let Some(ref val) = self.storage_class {
-            if val.as_str() == "" {
-                self.storage_class = None;
-            }
+        if let Some(ref val) = self.storage_class
+            && val.as_str() == ""
+        {
+            self.storage_class = None;
         }
         if self.tagging.as_deref() == Some("") {
             self.tagging = None;
         }
-        if let Some(ref val) = self.tagging_directive {
-            if val.as_str() == "" {
-                self.tagging_directive = None;
-            }
+        if let Some(ref val) = self.tagging_directive
+            && val.as_str() == ""
+        {
+            self.tagging_directive = None;
         }
         if self.website_redirect_location.as_deref() == Some("") {
             self.website_redirect_location = None;
@@ -32116,10 +34100,10 @@ impl DtoExt for CopyObjectOutput {
         if self.expiration.as_deref() == Some("") {
             self.expiration = None;
         }
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
         if self.sse_customer_algorithm.as_deref() == Some("") {
             self.sse_customer_algorithm = None;
@@ -32133,10 +34117,10 @@ impl DtoExt for CopyObjectOutput {
         if self.ssekms_key_id.as_deref() == Some("") {
             self.ssekms_key_id = None;
         }
-        if let Some(ref val) = self.server_side_encryption {
-            if val.as_str() == "" {
-                self.server_side_encryption = None;
-            }
+        if let Some(ref val) = self.server_side_encryption
+            && val.as_str() == ""
+        {
+            self.server_side_encryption = None;
         }
         if self.version_id.as_deref() == Some("") {
             self.version_id = None;
@@ -32160,10 +34144,10 @@ impl DtoExt for CopyObjectResult {
         if self.checksum_sha256.as_deref() == Some("") {
             self.checksum_sha256 = None;
         }
-        if let Some(ref val) = self.checksum_type {
-            if val.as_str() == "" {
-                self.checksum_type = None;
-            }
+        if let Some(ref val) = self.checksum_type
+            && val.as_str() == ""
+        {
+            self.checksum_type = None;
         }
     }
 }
@@ -32194,19 +34178,19 @@ impl DtoExt for CreateBucketConfiguration {
         if let Some(ref mut val) = self.location {
             val.ignore_empty_strings();
         }
-        if let Some(ref val) = self.location_constraint {
-            if val.as_str() == "" {
-                self.location_constraint = None;
-            }
+        if let Some(ref val) = self.location_constraint
+            && val.as_str() == ""
+        {
+            self.location_constraint = None;
         }
     }
 }
 impl DtoExt for CreateBucketInput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.acl {
-            if val.as_str() == "" {
-                self.acl = None;
-            }
+        if let Some(ref val) = self.acl
+            && val.as_str() == ""
+        {
+            self.acl = None;
         }
         if let Some(ref mut val) = self.create_bucket_configuration {
             val.ignore_empty_strings();
@@ -32226,19 +34210,19 @@ impl DtoExt for CreateBucketInput {
         if self.grant_write_acp.as_deref() == Some("") {
             self.grant_write_acp = None;
         }
-        if let Some(ref val) = self.object_ownership {
-            if val.as_str() == "" {
-                self.object_ownership = None;
-            }
+        if let Some(ref val) = self.object_ownership
+            && val.as_str() == ""
+        {
+            self.object_ownership = None;
         }
     }
 }
 impl DtoExt for CreateBucketMetadataTableConfigurationInput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
         }
         if self.content_md5.as_deref() == Some("") {
             self.content_md5 = None;
@@ -32258,23 +34242,23 @@ impl DtoExt for CreateBucketOutput {
 }
 impl DtoExt for CreateMultipartUploadInput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.acl {
-            if val.as_str() == "" {
-                self.acl = None;
-            }
+        if let Some(ref val) = self.acl
+            && val.as_str() == ""
+        {
+            self.acl = None;
         }
         if self.cache_control.as_deref() == Some("") {
             self.cache_control = None;
         }
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
         }
-        if let Some(ref val) = self.checksum_type {
-            if val.as_str() == "" {
-                self.checksum_type = None;
-            }
+        if let Some(ref val) = self.checksum_type
+            && val.as_str() == ""
+        {
+            self.checksum_type = None;
         }
         if self.content_disposition.as_deref() == Some("") {
             self.content_disposition = None;
@@ -32300,20 +34284,20 @@ impl DtoExt for CreateMultipartUploadInput {
         if self.grant_write_acp.as_deref() == Some("") {
             self.grant_write_acp = None;
         }
-        if let Some(ref val) = self.object_lock_legal_hold_status {
-            if val.as_str() == "" {
-                self.object_lock_legal_hold_status = None;
-            }
+        if let Some(ref val) = self.object_lock_legal_hold_status
+            && val.as_str() == ""
+        {
+            self.object_lock_legal_hold_status = None;
         }
-        if let Some(ref val) = self.object_lock_mode {
-            if val.as_str() == "" {
-                self.object_lock_mode = None;
-            }
+        if let Some(ref val) = self.object_lock_mode
+            && val.as_str() == ""
+        {
+            self.object_lock_mode = None;
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
         if self.sse_customer_algorithm.as_deref() == Some("") {
             self.sse_customer_algorithm = None;
@@ -32330,15 +34314,15 @@ impl DtoExt for CreateMultipartUploadInput {
         if self.ssekms_key_id.as_deref() == Some("") {
             self.ssekms_key_id = None;
         }
-        if let Some(ref val) = self.server_side_encryption {
-            if val.as_str() == "" {
-                self.server_side_encryption = None;
-            }
+        if let Some(ref val) = self.server_side_encryption
+            && val.as_str() == ""
+        {
+            self.server_side_encryption = None;
         }
-        if let Some(ref val) = self.storage_class {
-            if val.as_str() == "" {
-                self.storage_class = None;
-            }
+        if let Some(ref val) = self.storage_class
+            && val.as_str() == ""
+        {
+            self.storage_class = None;
         }
         if self.tagging.as_deref() == Some("") {
             self.tagging = None;
@@ -32356,23 +34340,23 @@ impl DtoExt for CreateMultipartUploadOutput {
         if self.bucket.as_deref() == Some("") {
             self.bucket = None;
         }
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
         }
-        if let Some(ref val) = self.checksum_type {
-            if val.as_str() == "" {
-                self.checksum_type = None;
-            }
+        if let Some(ref val) = self.checksum_type
+            && val.as_str() == ""
+        {
+            self.checksum_type = None;
         }
         if self.key.as_deref() == Some("") {
             self.key = None;
         }
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
         if self.sse_customer_algorithm.as_deref() == Some("") {
             self.sse_customer_algorithm = None;
@@ -32386,13 +34370,49 @@ impl DtoExt for CreateMultipartUploadOutput {
         if self.ssekms_key_id.as_deref() == Some("") {
             self.ssekms_key_id = None;
         }
-        if let Some(ref val) = self.server_side_encryption {
-            if val.as_str() == "" {
-                self.server_side_encryption = None;
-            }
+        if let Some(ref val) = self.server_side_encryption
+            && val.as_str() == ""
+        {
+            self.server_side_encryption = None;
         }
         if self.upload_id.as_deref() == Some("") {
             self.upload_id = None;
+        }
+    }
+}
+impl DtoExt for CreateSessionInput {
+    fn ignore_empty_strings(&mut self) {
+        if self.ssekms_encryption_context.as_deref() == Some("") {
+            self.ssekms_encryption_context = None;
+        }
+        if self.ssekms_key_id.as_deref() == Some("") {
+            self.ssekms_key_id = None;
+        }
+        if let Some(ref val) = self.server_side_encryption
+            && val.as_str() == ""
+        {
+            self.server_side_encryption = None;
+        }
+        if let Some(ref val) = self.session_mode
+            && val.as_str() == ""
+        {
+            self.session_mode = None;
+        }
+    }
+}
+impl DtoExt for CreateSessionOutput {
+    fn ignore_empty_strings(&mut self) {
+        self.credentials.ignore_empty_strings();
+        if self.ssekms_encryption_context.as_deref() == Some("") {
+            self.ssekms_encryption_context = None;
+        }
+        if self.ssekms_key_id.as_deref() == Some("") {
+            self.ssekms_key_id = None;
+        }
+        if let Some(ref val) = self.server_side_encryption
+            && val.as_str() == ""
+        {
+            self.server_side_encryption = None;
         }
     }
 }
@@ -32401,10 +34421,10 @@ impl DtoExt for Credentials {
 }
 impl DtoExt for DefaultRetention {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.mode {
-            if val.as_str() == "" {
-                self.mode = None;
-            }
+        if let Some(ref val) = self.mode
+            && val.as_str() == ""
+        {
+            self.mode = None;
         }
     }
 }
@@ -32520,10 +34540,10 @@ impl DtoExt for DeleteMarkerEntry {
 }
 impl DtoExt for DeleteMarkerReplication {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.status {
-            if val.as_str() == "" {
-                self.status = None;
-            }
+        if let Some(ref val) = self.status
+            && val.as_str() == ""
+        {
+            self.status = None;
         }
     }
 }
@@ -32532,16 +34552,13 @@ impl DtoExt for DeleteObjectInput {
         if self.expected_bucket_owner.as_deref() == Some("") {
             self.expected_bucket_owner = None;
         }
-        if self.if_match.as_deref() == Some("") {
-            self.if_match = None;
-        }
         if self.mfa.as_deref() == Some("") {
             self.mfa = None;
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
         if self.version_id.as_deref() == Some("") {
             self.version_id = None;
@@ -32550,10 +34567,10 @@ impl DtoExt for DeleteObjectInput {
 }
 impl DtoExt for DeleteObjectOutput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
         if self.version_id.as_deref() == Some("") {
             self.version_id = None;
@@ -32579,10 +34596,10 @@ impl DtoExt for DeleteObjectTaggingOutput {
 }
 impl DtoExt for DeleteObjectsInput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
         }
         self.delete.ignore_empty_strings();
         if self.expected_bucket_owner.as_deref() == Some("") {
@@ -32591,19 +34608,19 @@ impl DtoExt for DeleteObjectsInput {
         if self.mfa.as_deref() == Some("") {
             self.mfa = None;
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
     }
 }
 impl DtoExt for DeleteObjectsOutput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
     }
 }
@@ -32644,10 +34661,10 @@ impl DtoExt for Destination {
         if let Some(ref mut val) = self.replication_time {
             val.ignore_empty_strings();
         }
-        if let Some(ref val) = self.storage_class {
-            if val.as_str() == "" {
-                self.storage_class = None;
-            }
+        if let Some(ref val) = self.storage_class
+            && val.as_str() == ""
+        {
+            self.storage_class = None;
         }
     }
 }
@@ -32702,10 +34719,10 @@ impl DtoExt for ExistingObjectReplication {
 }
 impl DtoExt for FilterRule {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.name {
-            if val.as_str() == "" {
-                self.name = None;
-            }
+        if let Some(ref val) = self.name
+            && val.as_str() == ""
+        {
+            self.name = None;
         }
         if self.value.as_deref() == Some("") {
             self.value = None;
@@ -32717,24 +34734,24 @@ impl DtoExt for GetBucketAccelerateConfigurationInput {
         if self.expected_bucket_owner.as_deref() == Some("") {
             self.expected_bucket_owner = None;
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
     }
 }
 impl DtoExt for GetBucketAccelerateConfigurationOutput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
-        if let Some(ref val) = self.status {
-            if val.as_str() == "" {
-                self.status = None;
-            }
+        if let Some(ref val) = self.status
+            && val.as_str() == ""
+        {
+            self.status = None;
         }
     }
 }
@@ -32823,10 +34840,10 @@ impl DtoExt for GetBucketLifecycleConfigurationInput {
 }
 impl DtoExt for GetBucketLifecycleConfigurationOutput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.transition_default_minimum_object_size {
-            if val.as_str() == "" {
-                self.transition_default_minimum_object_size = None;
-            }
+        if let Some(ref val) = self.transition_default_minimum_object_size
+            && val.as_str() == ""
+        {
+            self.transition_default_minimum_object_size = None;
         }
     }
 }
@@ -32839,10 +34856,10 @@ impl DtoExt for GetBucketLocationInput {
 }
 impl DtoExt for GetBucketLocationOutput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.location_constraint {
-            if val.as_str() == "" {
-                self.location_constraint = None;
-            }
+        if let Some(ref val) = self.location_constraint
+            && val.as_str() == ""
+        {
+            self.location_constraint = None;
         }
     }
 }
@@ -32971,10 +34988,10 @@ impl DtoExt for GetBucketRequestPaymentInput {
 }
 impl DtoExt for GetBucketRequestPaymentOutput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.payer {
-            if val.as_str() == "" {
-                self.payer = None;
-            }
+        if let Some(ref val) = self.payer
+            && val.as_str() == ""
+        {
+            self.payer = None;
         }
     }
 }
@@ -32997,15 +35014,15 @@ impl DtoExt for GetBucketVersioningInput {
 }
 impl DtoExt for GetBucketVersioningOutput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.mfa_delete {
-            if val.as_str() == "" {
-                self.mfa_delete = None;
-            }
+        if let Some(ref val) = self.mfa_delete
+            && val.as_str() == ""
+        {
+            self.mfa_delete = None;
         }
-        if let Some(ref val) = self.status {
-            if val.as_str() == "" {
-                self.status = None;
-            }
+        if let Some(ref val) = self.status
+            && val.as_str() == ""
+        {
+            self.status = None;
         }
     }
 }
@@ -33034,10 +35051,10 @@ impl DtoExt for GetObjectAclInput {
         if self.expected_bucket_owner.as_deref() == Some("") {
             self.expected_bucket_owner = None;
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
         if self.version_id.as_deref() == Some("") {
             self.version_id = None;
@@ -33049,10 +35066,10 @@ impl DtoExt for GetObjectAclOutput {
         if let Some(ref mut val) = self.owner {
             val.ignore_empty_strings();
         }
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
     }
 }
@@ -33061,10 +35078,10 @@ impl DtoExt for GetObjectAttributesInput {
         if self.expected_bucket_owner.as_deref() == Some("") {
             self.expected_bucket_owner = None;
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
         if self.sse_customer_algorithm.as_deref() == Some("") {
             self.sse_customer_algorithm = None;
@@ -33088,15 +35105,15 @@ impl DtoExt for GetObjectAttributesOutput {
         if let Some(ref mut val) = self.object_parts {
             val.ignore_empty_strings();
         }
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
-        if let Some(ref val) = self.storage_class {
-            if val.as_str() == "" {
-                self.storage_class = None;
-            }
+        if let Some(ref val) = self.storage_class
+            && val.as_str() == ""
+        {
+            self.storage_class = None;
         }
         if self.version_id.as_deref() == Some("") {
             self.version_id = None;
@@ -33108,24 +35125,18 @@ impl DtoExt for GetObjectAttributesParts {
 }
 impl DtoExt for GetObjectInput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.checksum_mode {
-            if val.as_str() == "" {
-                self.checksum_mode = None;
-            }
+        if let Some(ref val) = self.checksum_mode
+            && val.as_str() == ""
+        {
+            self.checksum_mode = None;
         }
         if self.expected_bucket_owner.as_deref() == Some("") {
             self.expected_bucket_owner = None;
         }
-        if self.if_match.as_deref() == Some("") {
-            self.if_match = None;
-        }
-        if self.if_none_match.as_deref() == Some("") {
-            self.if_none_match = None;
-        }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
         if self.response_cache_control.as_deref() == Some("") {
             self.response_cache_control = None;
@@ -33161,10 +35172,10 @@ impl DtoExt for GetObjectLegalHoldInput {
         if self.expected_bucket_owner.as_deref() == Some("") {
             self.expected_bucket_owner = None;
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
         if self.version_id.as_deref() == Some("") {
             self.version_id = None;
@@ -33215,10 +35226,10 @@ impl DtoExt for GetObjectOutput {
         if self.checksum_sha256.as_deref() == Some("") {
             self.checksum_sha256 = None;
         }
-        if let Some(ref val) = self.checksum_type {
-            if val.as_str() == "" {
-                self.checksum_type = None;
-            }
+        if let Some(ref val) = self.checksum_type
+            && val.as_str() == ""
+        {
+            self.checksum_type = None;
         }
         if self.content_disposition.as_deref() == Some("") {
             self.content_disposition = None;
@@ -33235,25 +35246,25 @@ impl DtoExt for GetObjectOutput {
         if self.expiration.as_deref() == Some("") {
             self.expiration = None;
         }
-        if let Some(ref val) = self.object_lock_legal_hold_status {
-            if val.as_str() == "" {
-                self.object_lock_legal_hold_status = None;
-            }
+        if let Some(ref val) = self.object_lock_legal_hold_status
+            && val.as_str() == ""
+        {
+            self.object_lock_legal_hold_status = None;
         }
-        if let Some(ref val) = self.object_lock_mode {
-            if val.as_str() == "" {
-                self.object_lock_mode = None;
-            }
+        if let Some(ref val) = self.object_lock_mode
+            && val.as_str() == ""
+        {
+            self.object_lock_mode = None;
         }
-        if let Some(ref val) = self.replication_status {
-            if val.as_str() == "" {
-                self.replication_status = None;
-            }
+        if let Some(ref val) = self.replication_status
+            && val.as_str() == ""
+        {
+            self.replication_status = None;
         }
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
         if self.restore.as_deref() == Some("") {
             self.restore = None;
@@ -33267,15 +35278,15 @@ impl DtoExt for GetObjectOutput {
         if self.ssekms_key_id.as_deref() == Some("") {
             self.ssekms_key_id = None;
         }
-        if let Some(ref val) = self.server_side_encryption {
-            if val.as_str() == "" {
-                self.server_side_encryption = None;
-            }
+        if let Some(ref val) = self.server_side_encryption
+            && val.as_str() == ""
+        {
+            self.server_side_encryption = None;
         }
-        if let Some(ref val) = self.storage_class {
-            if val.as_str() == "" {
-                self.storage_class = None;
-            }
+        if let Some(ref val) = self.storage_class
+            && val.as_str() == ""
+        {
+            self.storage_class = None;
         }
         if self.version_id.as_deref() == Some("") {
             self.version_id = None;
@@ -33290,10 +35301,10 @@ impl DtoExt for GetObjectRetentionInput {
         if self.expected_bucket_owner.as_deref() == Some("") {
             self.expected_bucket_owner = None;
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
         if self.version_id.as_deref() == Some("") {
             self.version_id = None;
@@ -33312,10 +35323,10 @@ impl DtoExt for GetObjectTaggingInput {
         if self.expected_bucket_owner.as_deref() == Some("") {
             self.expected_bucket_owner = None;
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
         if self.version_id.as_deref() == Some("") {
             self.version_id = None;
@@ -33334,19 +35345,19 @@ impl DtoExt for GetObjectTorrentInput {
         if self.expected_bucket_owner.as_deref() == Some("") {
             self.expected_bucket_owner = None;
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
     }
 }
 impl DtoExt for GetObjectTorrentOutput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
     }
 }
@@ -33372,10 +35383,10 @@ impl DtoExt for Grant {
         if let Some(ref mut val) = self.grantee {
             val.ignore_empty_strings();
         }
-        if let Some(ref val) = self.permission {
-            if val.as_str() == "" {
-                self.permission = None;
-            }
+        if let Some(ref val) = self.permission
+            && val.as_str() == ""
+        {
+            self.permission = None;
         }
     }
 }
@@ -33407,10 +35418,10 @@ impl DtoExt for HeadBucketOutput {
         if self.bucket_location_name.as_deref() == Some("") {
             self.bucket_location_name = None;
         }
-        if let Some(ref val) = self.bucket_location_type {
-            if val.as_str() == "" {
-                self.bucket_location_type = None;
-            }
+        if let Some(ref val) = self.bucket_location_type
+            && val.as_str() == ""
+        {
+            self.bucket_location_type = None;
         }
         if self.bucket_region.as_deref() == Some("") {
             self.bucket_region = None;
@@ -33419,24 +35430,18 @@ impl DtoExt for HeadBucketOutput {
 }
 impl DtoExt for HeadObjectInput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.checksum_mode {
-            if val.as_str() == "" {
-                self.checksum_mode = None;
-            }
+        if let Some(ref val) = self.checksum_mode
+            && val.as_str() == ""
+        {
+            self.checksum_mode = None;
         }
         if self.expected_bucket_owner.as_deref() == Some("") {
             self.expected_bucket_owner = None;
         }
-        if self.if_match.as_deref() == Some("") {
-            self.if_match = None;
-        }
-        if self.if_none_match.as_deref() == Some("") {
-            self.if_none_match = None;
-        }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
         if self.response_cache_control.as_deref() == Some("") {
             self.response_cache_control = None;
@@ -33472,10 +35477,10 @@ impl DtoExt for HeadObjectOutput {
         if self.accept_ranges.as_deref() == Some("") {
             self.accept_ranges = None;
         }
-        if let Some(ref val) = self.archive_status {
-            if val.as_str() == "" {
-                self.archive_status = None;
-            }
+        if let Some(ref val) = self.archive_status
+            && val.as_str() == ""
+        {
+            self.archive_status = None;
         }
         if self.cache_control.as_deref() == Some("") {
             self.cache_control = None;
@@ -33495,10 +35500,10 @@ impl DtoExt for HeadObjectOutput {
         if self.checksum_sha256.as_deref() == Some("") {
             self.checksum_sha256 = None;
         }
-        if let Some(ref val) = self.checksum_type {
-            if val.as_str() == "" {
-                self.checksum_type = None;
-            }
+        if let Some(ref val) = self.checksum_type
+            && val.as_str() == ""
+        {
+            self.checksum_type = None;
         }
         if self.content_disposition.as_deref() == Some("") {
             self.content_disposition = None;
@@ -33515,25 +35520,25 @@ impl DtoExt for HeadObjectOutput {
         if self.expiration.as_deref() == Some("") {
             self.expiration = None;
         }
-        if let Some(ref val) = self.object_lock_legal_hold_status {
-            if val.as_str() == "" {
-                self.object_lock_legal_hold_status = None;
-            }
+        if let Some(ref val) = self.object_lock_legal_hold_status
+            && val.as_str() == ""
+        {
+            self.object_lock_legal_hold_status = None;
         }
-        if let Some(ref val) = self.object_lock_mode {
-            if val.as_str() == "" {
-                self.object_lock_mode = None;
-            }
+        if let Some(ref val) = self.object_lock_mode
+            && val.as_str() == ""
+        {
+            self.object_lock_mode = None;
         }
-        if let Some(ref val) = self.replication_status {
-            if val.as_str() == "" {
-                self.replication_status = None;
-            }
+        if let Some(ref val) = self.replication_status
+            && val.as_str() == ""
+        {
+            self.replication_status = None;
         }
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
         if self.restore.as_deref() == Some("") {
             self.restore = None;
@@ -33547,15 +35552,15 @@ impl DtoExt for HeadObjectOutput {
         if self.ssekms_key_id.as_deref() == Some("") {
             self.ssekms_key_id = None;
         }
-        if let Some(ref val) = self.server_side_encryption {
-            if val.as_str() == "" {
-                self.server_side_encryption = None;
-            }
+        if let Some(ref val) = self.server_side_encryption
+            && val.as_str() == ""
+        {
+            self.server_side_encryption = None;
         }
-        if let Some(ref val) = self.storage_class {
-            if val.as_str() == "" {
-                self.storage_class = None;
-            }
+        if let Some(ref val) = self.storage_class
+            && val.as_str() == ""
+        {
+            self.storage_class = None;
         }
         if self.version_id.as_deref() == Some("") {
             self.version_id = None;
@@ -33583,10 +35588,10 @@ impl DtoExt for InputSerialization {
         if let Some(ref mut val) = self.csv {
             val.ignore_empty_strings();
         }
-        if let Some(ref val) = self.compression_type {
-            if val.as_str() == "" {
-                self.compression_type = None;
-            }
+        if let Some(ref val) = self.compression_type
+            && val.as_str() == ""
+        {
+            self.compression_type = None;
         }
         if let Some(ref mut val) = self.json {
             val.ignore_empty_strings();
@@ -33622,15 +35627,15 @@ impl DtoExt for IntelligentTieringFilter {
 }
 impl DtoExt for InvalidObjectState {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.access_tier {
-            if val.as_str() == "" {
-                self.access_tier = None;
-            }
+        if let Some(ref val) = self.access_tier
+            && val.as_str() == ""
+        {
+            self.access_tier = None;
         }
-        if let Some(ref val) = self.storage_class {
-            if val.as_str() == "" {
-                self.storage_class = None;
-            }
+        if let Some(ref val) = self.storage_class
+            && val.as_str() == ""
+        {
+            self.storage_class = None;
         }
     }
 }
@@ -33676,10 +35681,10 @@ impl DtoExt for InventorySchedule {
 }
 impl DtoExt for JSONInput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.type_ {
-            if val.as_str() == "" {
-                self.type_ = None;
-            }
+        if let Some(ref val) = self.type_
+            && val.as_str() == ""
+        {
+            self.type_ = None;
         }
     }
 }
@@ -33848,15 +35853,29 @@ impl DtoExt for ListBucketsOutput {
         }
     }
 }
+impl DtoExt for ListDirectoryBucketsInput {
+    fn ignore_empty_strings(&mut self) {
+        if self.continuation_token.as_deref() == Some("") {
+            self.continuation_token = None;
+        }
+    }
+}
+impl DtoExt for ListDirectoryBucketsOutput {
+    fn ignore_empty_strings(&mut self) {
+        if self.continuation_token.as_deref() == Some("") {
+            self.continuation_token = None;
+        }
+    }
+}
 impl DtoExt for ListMultipartUploadsInput {
     fn ignore_empty_strings(&mut self) {
         if self.delimiter.as_deref() == Some("") {
             self.delimiter = None;
         }
-        if let Some(ref val) = self.encoding_type {
-            if val.as_str() == "" {
-                self.encoding_type = None;
-            }
+        if let Some(ref val) = self.encoding_type
+            && val.as_str() == ""
+        {
+            self.encoding_type = None;
         }
         if self.expected_bucket_owner.as_deref() == Some("") {
             self.expected_bucket_owner = None;
@@ -33867,10 +35886,10 @@ impl DtoExt for ListMultipartUploadsInput {
         if self.prefix.as_deref() == Some("") {
             self.prefix = None;
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
         if self.upload_id_marker.as_deref() == Some("") {
             self.upload_id_marker = None;
@@ -33885,10 +35904,10 @@ impl DtoExt for ListMultipartUploadsOutput {
         if self.delimiter.as_deref() == Some("") {
             self.delimiter = None;
         }
-        if let Some(ref val) = self.encoding_type {
-            if val.as_str() == "" {
-                self.encoding_type = None;
-            }
+        if let Some(ref val) = self.encoding_type
+            && val.as_str() == ""
+        {
+            self.encoding_type = None;
         }
         if self.key_marker.as_deref() == Some("") {
             self.key_marker = None;
@@ -33902,10 +35921,10 @@ impl DtoExt for ListMultipartUploadsOutput {
         if self.prefix.as_deref() == Some("") {
             self.prefix = None;
         }
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
         if self.upload_id_marker.as_deref() == Some("") {
             self.upload_id_marker = None;
@@ -33917,10 +35936,10 @@ impl DtoExt for ListObjectVersionsInput {
         if self.delimiter.as_deref() == Some("") {
             self.delimiter = None;
         }
-        if let Some(ref val) = self.encoding_type {
-            if val.as_str() == "" {
-                self.encoding_type = None;
-            }
+        if let Some(ref val) = self.encoding_type
+            && val.as_str() == ""
+        {
+            self.encoding_type = None;
         }
         if self.expected_bucket_owner.as_deref() == Some("") {
             self.expected_bucket_owner = None;
@@ -33931,10 +35950,10 @@ impl DtoExt for ListObjectVersionsInput {
         if self.prefix.as_deref() == Some("") {
             self.prefix = None;
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
         if self.version_id_marker.as_deref() == Some("") {
             self.version_id_marker = None;
@@ -33946,10 +35965,10 @@ impl DtoExt for ListObjectVersionsOutput {
         if self.delimiter.as_deref() == Some("") {
             self.delimiter = None;
         }
-        if let Some(ref val) = self.encoding_type {
-            if val.as_str() == "" {
-                self.encoding_type = None;
-            }
+        if let Some(ref val) = self.encoding_type
+            && val.as_str() == ""
+        {
+            self.encoding_type = None;
         }
         if self.key_marker.as_deref() == Some("") {
             self.key_marker = None;
@@ -33966,10 +35985,10 @@ impl DtoExt for ListObjectVersionsOutput {
         if self.prefix.as_deref() == Some("") {
             self.prefix = None;
         }
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
         if self.version_id_marker.as_deref() == Some("") {
             self.version_id_marker = None;
@@ -33981,10 +36000,10 @@ impl DtoExt for ListObjectsInput {
         if self.delimiter.as_deref() == Some("") {
             self.delimiter = None;
         }
-        if let Some(ref val) = self.encoding_type {
-            if val.as_str() == "" {
-                self.encoding_type = None;
-            }
+        if let Some(ref val) = self.encoding_type
+            && val.as_str() == ""
+        {
+            self.encoding_type = None;
         }
         if self.expected_bucket_owner.as_deref() == Some("") {
             self.expected_bucket_owner = None;
@@ -33995,39 +36014,39 @@ impl DtoExt for ListObjectsInput {
         if self.prefix.as_deref() == Some("") {
             self.prefix = None;
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
     }
 }
 impl DtoExt for ListObjectsOutput {
     fn ignore_empty_strings(&mut self) {
-        if self.delimiter.as_deref() == Some("") {
-            self.delimiter = None;
-        }
-        if let Some(ref val) = self.encoding_type {
-            if val.as_str() == "" {
-                self.encoding_type = None;
-            }
-        }
-        if self.marker.as_deref() == Some("") {
-            self.marker = None;
-        }
         if self.name.as_deref() == Some("") {
             self.name = None;
-        }
-        if self.next_marker.as_deref() == Some("") {
-            self.next_marker = None;
         }
         if self.prefix.as_deref() == Some("") {
             self.prefix = None;
         }
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if self.marker.as_deref() == Some("") {
+            self.marker = None;
+        }
+        if self.delimiter.as_deref() == Some("") {
+            self.delimiter = None;
+        }
+        if self.next_marker.as_deref() == Some("") {
+            self.next_marker = None;
+        }
+        if let Some(ref val) = self.encoding_type
+            && val.as_str() == ""
+        {
+            self.encoding_type = None;
+        }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
     }
 }
@@ -34039,10 +36058,10 @@ impl DtoExt for ListObjectsV2Input {
         if self.delimiter.as_deref() == Some("") {
             self.delimiter = None;
         }
-        if let Some(ref val) = self.encoding_type {
-            if val.as_str() == "" {
-                self.encoding_type = None;
-            }
+        if let Some(ref val) = self.encoding_type
+            && val.as_str() == ""
+        {
+            self.encoding_type = None;
         }
         if self.expected_bucket_owner.as_deref() == Some("") {
             self.expected_bucket_owner = None;
@@ -34050,10 +36069,10 @@ impl DtoExt for ListObjectsV2Input {
         if self.prefix.as_deref() == Some("") {
             self.prefix = None;
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
         if self.start_after.as_deref() == Some("") {
             self.start_after = None;
@@ -34062,33 +36081,33 @@ impl DtoExt for ListObjectsV2Input {
 }
 impl DtoExt for ListObjectsV2Output {
     fn ignore_empty_strings(&mut self) {
-        if self.continuation_token.as_deref() == Some("") {
-            self.continuation_token = None;
-        }
-        if self.delimiter.as_deref() == Some("") {
-            self.delimiter = None;
-        }
-        if let Some(ref val) = self.encoding_type {
-            if val.as_str() == "" {
-                self.encoding_type = None;
-            }
-        }
         if self.name.as_deref() == Some("") {
             self.name = None;
-        }
-        if self.next_continuation_token.as_deref() == Some("") {
-            self.next_continuation_token = None;
         }
         if self.prefix.as_deref() == Some("") {
             self.prefix = None;
         }
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if self.continuation_token.as_deref() == Some("") {
+            self.continuation_token = None;
+        }
+        if self.next_continuation_token.as_deref() == Some("") {
+            self.next_continuation_token = None;
+        }
+        if self.delimiter.as_deref() == Some("") {
+            self.delimiter = None;
+        }
+        if let Some(ref val) = self.encoding_type
+            && val.as_str() == ""
+        {
+            self.encoding_type = None;
         }
         if self.start_after.as_deref() == Some("") {
             self.start_after = None;
+        }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
     }
 }
@@ -34097,10 +36116,10 @@ impl DtoExt for ListPartsInput {
         if self.expected_bucket_owner.as_deref() == Some("") {
             self.expected_bucket_owner = None;
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
         if self.sse_customer_algorithm.as_deref() == Some("") {
             self.sse_customer_algorithm = None;
@@ -34121,15 +36140,15 @@ impl DtoExt for ListPartsOutput {
         if self.bucket.as_deref() == Some("") {
             self.bucket = None;
         }
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
         }
-        if let Some(ref val) = self.checksum_type {
-            if val.as_str() == "" {
-                self.checksum_type = None;
-            }
+        if let Some(ref val) = self.checksum_type
+            && val.as_str() == ""
+        {
+            self.checksum_type = None;
         }
         if let Some(ref mut val) = self.initiator {
             val.ignore_empty_strings();
@@ -34140,15 +36159,15 @@ impl DtoExt for ListPartsOutput {
         if let Some(ref mut val) = self.owner {
             val.ignore_empty_strings();
         }
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
-        if let Some(ref val) = self.storage_class {
-            if val.as_str() == "" {
-                self.storage_class = None;
-            }
+        if let Some(ref val) = self.storage_class
+            && val.as_str() == ""
+        {
+            self.storage_class = None;
         }
         if self.upload_id.as_deref() == Some("") {
             self.upload_id = None;
@@ -34160,10 +36179,10 @@ impl DtoExt for LocationInfo {
         if self.name.as_deref() == Some("") {
             self.name = None;
         }
-        if let Some(ref val) = self.type_ {
-            if val.as_str() == "" {
-                self.type_ = None;
-            }
+        if let Some(ref val) = self.type_
+            && val.as_str() == ""
+        {
+            self.type_ = None;
         }
     }
 }
@@ -34216,15 +36235,15 @@ impl DtoExt for MetricsConfiguration {
 }
 impl DtoExt for MultipartUpload {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
         }
-        if let Some(ref val) = self.checksum_type {
-            if val.as_str() == "" {
-                self.checksum_type = None;
-            }
+        if let Some(ref val) = self.checksum_type
+            && val.as_str() == ""
+        {
+            self.checksum_type = None;
         }
         if let Some(ref mut val) = self.initiator {
             val.ignore_empty_strings();
@@ -34235,10 +36254,10 @@ impl DtoExt for MultipartUpload {
         if let Some(ref mut val) = self.owner {
             val.ignore_empty_strings();
         }
-        if let Some(ref val) = self.storage_class {
-            if val.as_str() == "" {
-                self.storage_class = None;
-            }
+        if let Some(ref val) = self.storage_class
+            && val.as_str() == ""
+        {
+            self.storage_class = None;
         }
         if self.upload_id.as_deref() == Some("") {
             self.upload_id = None;
@@ -34250,10 +36269,10 @@ impl DtoExt for NoncurrentVersionExpiration {
 }
 impl DtoExt for NoncurrentVersionTransition {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.storage_class {
-            if val.as_str() == "" {
-                self.storage_class = None;
-            }
+        if let Some(ref val) = self.storage_class
+            && val.as_str() == ""
+        {
+            self.storage_class = None;
         }
     }
 }
@@ -34269,10 +36288,10 @@ impl DtoExt for NotificationConfigurationFilter {
 }
 impl DtoExt for Object {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.checksum_type {
-            if val.as_str() == "" {
-                self.checksum_type = None;
-            }
+        if let Some(ref val) = self.checksum_type
+            && val.as_str() == ""
+        {
+            self.checksum_type = None;
         }
         if self.key.as_deref() == Some("") {
             self.key = None;
@@ -34283,10 +36302,10 @@ impl DtoExt for Object {
         if let Some(ref mut val) = self.restore_status {
             val.ignore_empty_strings();
         }
-        if let Some(ref val) = self.storage_class {
-            if val.as_str() == "" {
-                self.storage_class = None;
-            }
+        if let Some(ref val) = self.storage_class
+            && val.as_str() == ""
+        {
+            self.storage_class = None;
         }
     }
 }
@@ -34299,10 +36318,10 @@ impl DtoExt for ObjectIdentifier {
 }
 impl DtoExt for ObjectLockConfiguration {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.object_lock_enabled {
-            if val.as_str() == "" {
-                self.object_lock_enabled = None;
-            }
+        if let Some(ref val) = self.object_lock_enabled
+            && val.as_str() == ""
+        {
+            self.object_lock_enabled = None;
         }
         if let Some(ref mut val) = self.rule {
             val.ignore_empty_strings();
@@ -34311,19 +36330,19 @@ impl DtoExt for ObjectLockConfiguration {
 }
 impl DtoExt for ObjectLockLegalHold {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.status {
-            if val.as_str() == "" {
-                self.status = None;
-            }
+        if let Some(ref val) = self.status
+            && val.as_str() == ""
+        {
+            self.status = None;
         }
     }
 }
 impl DtoExt for ObjectLockRetention {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.mode {
-            if val.as_str() == "" {
-                self.mode = None;
-            }
+        if let Some(ref val) = self.mode
+            && val.as_str() == ""
+        {
+            self.mode = None;
         }
     }
 }
@@ -34355,10 +36374,10 @@ impl DtoExt for ObjectPart {
 }
 impl DtoExt for ObjectVersion {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.checksum_type {
-            if val.as_str() == "" {
-                self.checksum_type = None;
-            }
+        if let Some(ref val) = self.checksum_type
+            && val.as_str() == ""
+        {
+            self.checksum_type = None;
         }
         if self.key.as_deref() == Some("") {
             self.key = None;
@@ -34369,10 +36388,10 @@ impl DtoExt for ObjectVersion {
         if let Some(ref mut val) = self.restore_status {
             val.ignore_empty_strings();
         }
-        if let Some(ref val) = self.storage_class {
-            if val.as_str() == "" {
-                self.storage_class = None;
-            }
+        if let Some(ref val) = self.storage_class
+            && val.as_str() == ""
+        {
+            self.storage_class = None;
         }
         if self.version_id.as_deref() == Some("") {
             self.version_id = None;
@@ -34433,375 +36452,30 @@ impl DtoExt for Part {
 }
 impl DtoExt for PartitionedPrefix {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.partition_date_source {
-            if val.as_str() == "" {
-                self.partition_date_source = None;
-            }
+        if let Some(ref val) = self.partition_date_source
+            && val.as_str() == ""
+        {
+            self.partition_date_source = None;
         }
     }
 }
 impl DtoExt for PolicyStatus {
     fn ignore_empty_strings(&mut self) {}
 }
-impl DtoExt for Progress {
-    fn ignore_empty_strings(&mut self) {}
-}
-impl DtoExt for ProgressEvent {
+impl DtoExt for PostObjectInput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref mut val) = self.details {
-            val.ignore_empty_strings();
-        }
-    }
-}
-impl DtoExt for PublicAccessBlockConfiguration {
-    fn ignore_empty_strings(&mut self) {}
-}
-impl DtoExt for PutBucketAccelerateConfigurationInput {
-    fn ignore_empty_strings(&mut self) {
-        self.accelerate_configuration.ignore_empty_strings();
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
-        }
-        if self.expected_bucket_owner.as_deref() == Some("") {
-            self.expected_bucket_owner = None;
-        }
-    }
-}
-impl DtoExt for PutBucketAclInput {
-    fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.acl {
-            if val.as_str() == "" {
-                self.acl = None;
-            }
-        }
-        if let Some(ref mut val) = self.access_control_policy {
-            val.ignore_empty_strings();
-        }
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
-        }
-        if self.content_md5.as_deref() == Some("") {
-            self.content_md5 = None;
-        }
-        if self.expected_bucket_owner.as_deref() == Some("") {
-            self.expected_bucket_owner = None;
-        }
-        if self.grant_full_control.as_deref() == Some("") {
-            self.grant_full_control = None;
-        }
-        if self.grant_read.as_deref() == Some("") {
-            self.grant_read = None;
-        }
-        if self.grant_read_acp.as_deref() == Some("") {
-            self.grant_read_acp = None;
-        }
-        if self.grant_write.as_deref() == Some("") {
-            self.grant_write = None;
-        }
-        if self.grant_write_acp.as_deref() == Some("") {
-            self.grant_write_acp = None;
-        }
-    }
-}
-impl DtoExt for PutBucketAnalyticsConfigurationInput {
-    fn ignore_empty_strings(&mut self) {
-        self.analytics_configuration.ignore_empty_strings();
-        if self.expected_bucket_owner.as_deref() == Some("") {
-            self.expected_bucket_owner = None;
-        }
-    }
-}
-impl DtoExt for PutBucketCorsInput {
-    fn ignore_empty_strings(&mut self) {
-        self.cors_configuration.ignore_empty_strings();
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
-        }
-        if self.content_md5.as_deref() == Some("") {
-            self.content_md5 = None;
-        }
-        if self.expected_bucket_owner.as_deref() == Some("") {
-            self.expected_bucket_owner = None;
-        }
-    }
-}
-impl DtoExt for PutBucketEncryptionInput {
-    fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
-        }
-        if self.content_md5.as_deref() == Some("") {
-            self.content_md5 = None;
-        }
-        if self.expected_bucket_owner.as_deref() == Some("") {
-            self.expected_bucket_owner = None;
-        }
-        self.server_side_encryption_configuration.ignore_empty_strings();
-    }
-}
-impl DtoExt for PutBucketIntelligentTieringConfigurationInput {
-    fn ignore_empty_strings(&mut self) {
-        self.intelligent_tiering_configuration.ignore_empty_strings();
-    }
-}
-impl DtoExt for PutBucketInventoryConfigurationInput {
-    fn ignore_empty_strings(&mut self) {
-        if self.expected_bucket_owner.as_deref() == Some("") {
-            self.expected_bucket_owner = None;
-        }
-        self.inventory_configuration.ignore_empty_strings();
-    }
-}
-impl DtoExt for PutBucketLifecycleConfigurationInput {
-    fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
-        }
-        if self.expected_bucket_owner.as_deref() == Some("") {
-            self.expected_bucket_owner = None;
-        }
-        if let Some(ref mut val) = self.lifecycle_configuration {
-            val.ignore_empty_strings();
-        }
-        if let Some(ref val) = self.transition_default_minimum_object_size {
-            if val.as_str() == "" {
-                self.transition_default_minimum_object_size = None;
-            }
-        }
-    }
-}
-impl DtoExt for PutBucketLifecycleConfigurationOutput {
-    fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.transition_default_minimum_object_size {
-            if val.as_str() == "" {
-                self.transition_default_minimum_object_size = None;
-            }
-        }
-    }
-}
-impl DtoExt for PutBucketLoggingInput {
-    fn ignore_empty_strings(&mut self) {
-        self.bucket_logging_status.ignore_empty_strings();
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
-        }
-        if self.content_md5.as_deref() == Some("") {
-            self.content_md5 = None;
-        }
-        if self.expected_bucket_owner.as_deref() == Some("") {
-            self.expected_bucket_owner = None;
-        }
-    }
-}
-impl DtoExt for PutBucketMetricsConfigurationInput {
-    fn ignore_empty_strings(&mut self) {
-        if self.expected_bucket_owner.as_deref() == Some("") {
-            self.expected_bucket_owner = None;
-        }
-        self.metrics_configuration.ignore_empty_strings();
-    }
-}
-impl DtoExt for PutBucketNotificationConfigurationInput {
-    fn ignore_empty_strings(&mut self) {
-        if self.expected_bucket_owner.as_deref() == Some("") {
-            self.expected_bucket_owner = None;
-        }
-        self.notification_configuration.ignore_empty_strings();
-    }
-}
-impl DtoExt for PutBucketOwnershipControlsInput {
-    fn ignore_empty_strings(&mut self) {
-        if self.content_md5.as_deref() == Some("") {
-            self.content_md5 = None;
-        }
-        if self.expected_bucket_owner.as_deref() == Some("") {
-            self.expected_bucket_owner = None;
-        }
-        self.ownership_controls.ignore_empty_strings();
-    }
-}
-impl DtoExt for PutBucketPolicyInput {
-    fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
-        }
-        if self.content_md5.as_deref() == Some("") {
-            self.content_md5 = None;
-        }
-        if self.expected_bucket_owner.as_deref() == Some("") {
-            self.expected_bucket_owner = None;
-        }
-    }
-}
-impl DtoExt for PutBucketReplicationInput {
-    fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
-        }
-        if self.content_md5.as_deref() == Some("") {
-            self.content_md5 = None;
-        }
-        if self.expected_bucket_owner.as_deref() == Some("") {
-            self.expected_bucket_owner = None;
-        }
-        self.replication_configuration.ignore_empty_strings();
-        if self.token.as_deref() == Some("") {
-            self.token = None;
-        }
-    }
-}
-impl DtoExt for PutBucketRequestPaymentInput {
-    fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
-        }
-        if self.content_md5.as_deref() == Some("") {
-            self.content_md5 = None;
-        }
-        if self.expected_bucket_owner.as_deref() == Some("") {
-            self.expected_bucket_owner = None;
-        }
-        self.request_payment_configuration.ignore_empty_strings();
-    }
-}
-impl DtoExt for PutBucketTaggingInput {
-    fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
-        }
-        if self.content_md5.as_deref() == Some("") {
-            self.content_md5 = None;
-        }
-        if self.expected_bucket_owner.as_deref() == Some("") {
-            self.expected_bucket_owner = None;
-        }
-        self.tagging.ignore_empty_strings();
-    }
-}
-impl DtoExt for PutBucketVersioningInput {
-    fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
-        }
-        if self.content_md5.as_deref() == Some("") {
-            self.content_md5 = None;
-        }
-        if self.expected_bucket_owner.as_deref() == Some("") {
-            self.expected_bucket_owner = None;
-        }
-        if self.mfa.as_deref() == Some("") {
-            self.mfa = None;
-        }
-        self.versioning_configuration.ignore_empty_strings();
-    }
-}
-impl DtoExt for PutBucketWebsiteInput {
-    fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
-        }
-        if self.content_md5.as_deref() == Some("") {
-            self.content_md5 = None;
-        }
-        if self.expected_bucket_owner.as_deref() == Some("") {
-            self.expected_bucket_owner = None;
-        }
-        self.website_configuration.ignore_empty_strings();
-    }
-}
-impl DtoExt for PutObjectAclInput {
-    fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.acl {
-            if val.as_str() == "" {
-                self.acl = None;
-            }
-        }
-        if let Some(ref mut val) = self.access_control_policy {
-            val.ignore_empty_strings();
-        }
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
-        }
-        if self.content_md5.as_deref() == Some("") {
-            self.content_md5 = None;
-        }
-        if self.expected_bucket_owner.as_deref() == Some("") {
-            self.expected_bucket_owner = None;
-        }
-        if self.grant_full_control.as_deref() == Some("") {
-            self.grant_full_control = None;
-        }
-        if self.grant_read.as_deref() == Some("") {
-            self.grant_read = None;
-        }
-        if self.grant_read_acp.as_deref() == Some("") {
-            self.grant_read_acp = None;
-        }
-        if self.grant_write.as_deref() == Some("") {
-            self.grant_write = None;
-        }
-        if self.grant_write_acp.as_deref() == Some("") {
-            self.grant_write_acp = None;
-        }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
-        }
-        if self.version_id.as_deref() == Some("") {
-            self.version_id = None;
-        }
-    }
-}
-impl DtoExt for PutObjectAclOutput {
-    fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
-        }
-    }
-}
-impl DtoExt for PutObjectInput {
-    fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.acl {
-            if val.as_str() == "" {
-                self.acl = None;
-            }
+        if let Some(ref val) = self.acl
+            && val.as_str() == ""
+        {
+            self.acl = None;
         }
         if self.cache_control.as_deref() == Some("") {
             self.cache_control = None;
         }
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
         }
         if self.checksum_crc32.as_deref() == Some("") {
             self.checksum_crc32 = None;
@@ -34845,26 +36519,20 @@ impl DtoExt for PutObjectInput {
         if self.grant_write_acp.as_deref() == Some("") {
             self.grant_write_acp = None;
         }
-        if self.if_match.as_deref() == Some("") {
-            self.if_match = None;
+        if let Some(ref val) = self.object_lock_legal_hold_status
+            && val.as_str() == ""
+        {
+            self.object_lock_legal_hold_status = None;
         }
-        if self.if_none_match.as_deref() == Some("") {
-            self.if_none_match = None;
+        if let Some(ref val) = self.object_lock_mode
+            && val.as_str() == ""
+        {
+            self.object_lock_mode = None;
         }
-        if let Some(ref val) = self.object_lock_legal_hold_status {
-            if val.as_str() == "" {
-                self.object_lock_legal_hold_status = None;
-            }
-        }
-        if let Some(ref val) = self.object_lock_mode {
-            if val.as_str() == "" {
-                self.object_lock_mode = None;
-            }
-        }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
         if self.sse_customer_algorithm.as_deref() == Some("") {
             self.sse_customer_algorithm = None;
@@ -34881,15 +36549,517 @@ impl DtoExt for PutObjectInput {
         if self.ssekms_key_id.as_deref() == Some("") {
             self.ssekms_key_id = None;
         }
-        if let Some(ref val) = self.server_side_encryption {
-            if val.as_str() == "" {
-                self.server_side_encryption = None;
-            }
+        if let Some(ref val) = self.server_side_encryption
+            && val.as_str() == ""
+        {
+            self.server_side_encryption = None;
         }
-        if let Some(ref val) = self.storage_class {
-            if val.as_str() == "" {
-                self.storage_class = None;
-            }
+        if let Some(ref val) = self.storage_class
+            && val.as_str() == ""
+        {
+            self.storage_class = None;
+        }
+        if self.tagging.as_deref() == Some("") {
+            self.tagging = None;
+        }
+        if self.website_redirect_location.as_deref() == Some("") {
+            self.website_redirect_location = None;
+        }
+    }
+}
+impl DtoExt for PostObjectOutput {
+    fn ignore_empty_strings(&mut self) {
+        if self.checksum_crc32.as_deref() == Some("") {
+            self.checksum_crc32 = None;
+        }
+        if self.checksum_crc32c.as_deref() == Some("") {
+            self.checksum_crc32c = None;
+        }
+        if self.checksum_crc64nvme.as_deref() == Some("") {
+            self.checksum_crc64nvme = None;
+        }
+        if self.checksum_sha1.as_deref() == Some("") {
+            self.checksum_sha1 = None;
+        }
+        if self.checksum_sha256.as_deref() == Some("") {
+            self.checksum_sha256 = None;
+        }
+        if let Some(ref val) = self.checksum_type
+            && val.as_str() == ""
+        {
+            self.checksum_type = None;
+        }
+        if self.expiration.as_deref() == Some("") {
+            self.expiration = None;
+        }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
+        }
+        if self.sse_customer_algorithm.as_deref() == Some("") {
+            self.sse_customer_algorithm = None;
+        }
+        if self.sse_customer_key_md5.as_deref() == Some("") {
+            self.sse_customer_key_md5 = None;
+        }
+        if self.ssekms_encryption_context.as_deref() == Some("") {
+            self.ssekms_encryption_context = None;
+        }
+        if self.ssekms_key_id.as_deref() == Some("") {
+            self.ssekms_key_id = None;
+        }
+        if let Some(ref val) = self.server_side_encryption
+            && val.as_str() == ""
+        {
+            self.server_side_encryption = None;
+        }
+        if self.version_id.as_deref() == Some("") {
+            self.version_id = None;
+        }
+    }
+}
+impl DtoExt for Progress {
+    fn ignore_empty_strings(&mut self) {}
+}
+impl DtoExt for ProgressEvent {
+    fn ignore_empty_strings(&mut self) {
+        if let Some(ref mut val) = self.details {
+            val.ignore_empty_strings();
+        }
+    }
+}
+impl DtoExt for PublicAccessBlockConfiguration {
+    fn ignore_empty_strings(&mut self) {}
+}
+impl DtoExt for PutBucketAccelerateConfigurationInput {
+    fn ignore_empty_strings(&mut self) {
+        self.accelerate_configuration.ignore_empty_strings();
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
+        }
+        if self.expected_bucket_owner.as_deref() == Some("") {
+            self.expected_bucket_owner = None;
+        }
+    }
+}
+impl DtoExt for PutBucketAclInput {
+    fn ignore_empty_strings(&mut self) {
+        if let Some(ref val) = self.acl
+            && val.as_str() == ""
+        {
+            self.acl = None;
+        }
+        if let Some(ref mut val) = self.access_control_policy {
+            val.ignore_empty_strings();
+        }
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
+        }
+        if self.content_md5.as_deref() == Some("") {
+            self.content_md5 = None;
+        }
+        if self.expected_bucket_owner.as_deref() == Some("") {
+            self.expected_bucket_owner = None;
+        }
+        if self.grant_full_control.as_deref() == Some("") {
+            self.grant_full_control = None;
+        }
+        if self.grant_read.as_deref() == Some("") {
+            self.grant_read = None;
+        }
+        if self.grant_read_acp.as_deref() == Some("") {
+            self.grant_read_acp = None;
+        }
+        if self.grant_write.as_deref() == Some("") {
+            self.grant_write = None;
+        }
+        if self.grant_write_acp.as_deref() == Some("") {
+            self.grant_write_acp = None;
+        }
+    }
+}
+impl DtoExt for PutBucketAnalyticsConfigurationInput {
+    fn ignore_empty_strings(&mut self) {
+        self.analytics_configuration.ignore_empty_strings();
+        if self.expected_bucket_owner.as_deref() == Some("") {
+            self.expected_bucket_owner = None;
+        }
+    }
+}
+impl DtoExt for PutBucketCorsInput {
+    fn ignore_empty_strings(&mut self) {
+        self.cors_configuration.ignore_empty_strings();
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
+        }
+        if self.content_md5.as_deref() == Some("") {
+            self.content_md5 = None;
+        }
+        if self.expected_bucket_owner.as_deref() == Some("") {
+            self.expected_bucket_owner = None;
+        }
+    }
+}
+impl DtoExt for PutBucketEncryptionInput {
+    fn ignore_empty_strings(&mut self) {
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
+        }
+        if self.content_md5.as_deref() == Some("") {
+            self.content_md5 = None;
+        }
+        if self.expected_bucket_owner.as_deref() == Some("") {
+            self.expected_bucket_owner = None;
+        }
+        self.server_side_encryption_configuration.ignore_empty_strings();
+    }
+}
+impl DtoExt for PutBucketIntelligentTieringConfigurationInput {
+    fn ignore_empty_strings(&mut self) {
+        self.intelligent_tiering_configuration.ignore_empty_strings();
+    }
+}
+impl DtoExt for PutBucketInventoryConfigurationInput {
+    fn ignore_empty_strings(&mut self) {
+        if self.expected_bucket_owner.as_deref() == Some("") {
+            self.expected_bucket_owner = None;
+        }
+        self.inventory_configuration.ignore_empty_strings();
+    }
+}
+impl DtoExt for PutBucketLifecycleConfigurationInput {
+    fn ignore_empty_strings(&mut self) {
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
+        }
+        if self.expected_bucket_owner.as_deref() == Some("") {
+            self.expected_bucket_owner = None;
+        }
+        if let Some(ref mut val) = self.lifecycle_configuration {
+            val.ignore_empty_strings();
+        }
+        if let Some(ref val) = self.transition_default_minimum_object_size
+            && val.as_str() == ""
+        {
+            self.transition_default_minimum_object_size = None;
+        }
+    }
+}
+impl DtoExt for PutBucketLifecycleConfigurationOutput {
+    fn ignore_empty_strings(&mut self) {
+        if let Some(ref val) = self.transition_default_minimum_object_size
+            && val.as_str() == ""
+        {
+            self.transition_default_minimum_object_size = None;
+        }
+    }
+}
+impl DtoExt for PutBucketLoggingInput {
+    fn ignore_empty_strings(&mut self) {
+        self.bucket_logging_status.ignore_empty_strings();
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
+        }
+        if self.content_md5.as_deref() == Some("") {
+            self.content_md5 = None;
+        }
+        if self.expected_bucket_owner.as_deref() == Some("") {
+            self.expected_bucket_owner = None;
+        }
+    }
+}
+impl DtoExt for PutBucketMetricsConfigurationInput {
+    fn ignore_empty_strings(&mut self) {
+        if self.expected_bucket_owner.as_deref() == Some("") {
+            self.expected_bucket_owner = None;
+        }
+        self.metrics_configuration.ignore_empty_strings();
+    }
+}
+impl DtoExt for PutBucketNotificationConfigurationInput {
+    fn ignore_empty_strings(&mut self) {
+        if self.expected_bucket_owner.as_deref() == Some("") {
+            self.expected_bucket_owner = None;
+        }
+        self.notification_configuration.ignore_empty_strings();
+    }
+}
+impl DtoExt for PutBucketOwnershipControlsInput {
+    fn ignore_empty_strings(&mut self) {
+        if self.content_md5.as_deref() == Some("") {
+            self.content_md5 = None;
+        }
+        if self.expected_bucket_owner.as_deref() == Some("") {
+            self.expected_bucket_owner = None;
+        }
+        self.ownership_controls.ignore_empty_strings();
+    }
+}
+impl DtoExt for PutBucketPolicyInput {
+    fn ignore_empty_strings(&mut self) {
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
+        }
+        if self.content_md5.as_deref() == Some("") {
+            self.content_md5 = None;
+        }
+        if self.expected_bucket_owner.as_deref() == Some("") {
+            self.expected_bucket_owner = None;
+        }
+    }
+}
+impl DtoExt for PutBucketReplicationInput {
+    fn ignore_empty_strings(&mut self) {
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
+        }
+        if self.content_md5.as_deref() == Some("") {
+            self.content_md5 = None;
+        }
+        if self.expected_bucket_owner.as_deref() == Some("") {
+            self.expected_bucket_owner = None;
+        }
+        self.replication_configuration.ignore_empty_strings();
+        if self.token.as_deref() == Some("") {
+            self.token = None;
+        }
+    }
+}
+impl DtoExt for PutBucketRequestPaymentInput {
+    fn ignore_empty_strings(&mut self) {
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
+        }
+        if self.content_md5.as_deref() == Some("") {
+            self.content_md5 = None;
+        }
+        if self.expected_bucket_owner.as_deref() == Some("") {
+            self.expected_bucket_owner = None;
+        }
+        self.request_payment_configuration.ignore_empty_strings();
+    }
+}
+impl DtoExt for PutBucketTaggingInput {
+    fn ignore_empty_strings(&mut self) {
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
+        }
+        if self.content_md5.as_deref() == Some("") {
+            self.content_md5 = None;
+        }
+        if self.expected_bucket_owner.as_deref() == Some("") {
+            self.expected_bucket_owner = None;
+        }
+        self.tagging.ignore_empty_strings();
+    }
+}
+impl DtoExt for PutBucketVersioningInput {
+    fn ignore_empty_strings(&mut self) {
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
+        }
+        if self.content_md5.as_deref() == Some("") {
+            self.content_md5 = None;
+        }
+        if self.expected_bucket_owner.as_deref() == Some("") {
+            self.expected_bucket_owner = None;
+        }
+        if self.mfa.as_deref() == Some("") {
+            self.mfa = None;
+        }
+        self.versioning_configuration.ignore_empty_strings();
+    }
+}
+impl DtoExt for PutBucketWebsiteInput {
+    fn ignore_empty_strings(&mut self) {
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
+        }
+        if self.content_md5.as_deref() == Some("") {
+            self.content_md5 = None;
+        }
+        if self.expected_bucket_owner.as_deref() == Some("") {
+            self.expected_bucket_owner = None;
+        }
+        self.website_configuration.ignore_empty_strings();
+    }
+}
+impl DtoExt for PutObjectAclInput {
+    fn ignore_empty_strings(&mut self) {
+        if let Some(ref val) = self.acl
+            && val.as_str() == ""
+        {
+            self.acl = None;
+        }
+        if let Some(ref mut val) = self.access_control_policy {
+            val.ignore_empty_strings();
+        }
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
+        }
+        if self.content_md5.as_deref() == Some("") {
+            self.content_md5 = None;
+        }
+        if self.expected_bucket_owner.as_deref() == Some("") {
+            self.expected_bucket_owner = None;
+        }
+        if self.grant_full_control.as_deref() == Some("") {
+            self.grant_full_control = None;
+        }
+        if self.grant_read.as_deref() == Some("") {
+            self.grant_read = None;
+        }
+        if self.grant_read_acp.as_deref() == Some("") {
+            self.grant_read_acp = None;
+        }
+        if self.grant_write.as_deref() == Some("") {
+            self.grant_write = None;
+        }
+        if self.grant_write_acp.as_deref() == Some("") {
+            self.grant_write_acp = None;
+        }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
+        }
+        if self.version_id.as_deref() == Some("") {
+            self.version_id = None;
+        }
+    }
+}
+impl DtoExt for PutObjectAclOutput {
+    fn ignore_empty_strings(&mut self) {
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
+        }
+    }
+}
+impl DtoExt for PutObjectInput {
+    fn ignore_empty_strings(&mut self) {
+        if let Some(ref val) = self.acl
+            && val.as_str() == ""
+        {
+            self.acl = None;
+        }
+        if self.cache_control.as_deref() == Some("") {
+            self.cache_control = None;
+        }
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
+        }
+        if self.checksum_crc32.as_deref() == Some("") {
+            self.checksum_crc32 = None;
+        }
+        if self.checksum_crc32c.as_deref() == Some("") {
+            self.checksum_crc32c = None;
+        }
+        if self.checksum_crc64nvme.as_deref() == Some("") {
+            self.checksum_crc64nvme = None;
+        }
+        if self.checksum_sha1.as_deref() == Some("") {
+            self.checksum_sha1 = None;
+        }
+        if self.checksum_sha256.as_deref() == Some("") {
+            self.checksum_sha256 = None;
+        }
+        if self.content_disposition.as_deref() == Some("") {
+            self.content_disposition = None;
+        }
+        if self.content_encoding.as_deref() == Some("") {
+            self.content_encoding = None;
+        }
+        if self.content_language.as_deref() == Some("") {
+            self.content_language = None;
+        }
+        if self.content_md5.as_deref() == Some("") {
+            self.content_md5 = None;
+        }
+        if self.expected_bucket_owner.as_deref() == Some("") {
+            self.expected_bucket_owner = None;
+        }
+        if self.grant_full_control.as_deref() == Some("") {
+            self.grant_full_control = None;
+        }
+        if self.grant_read.as_deref() == Some("") {
+            self.grant_read = None;
+        }
+        if self.grant_read_acp.as_deref() == Some("") {
+            self.grant_read_acp = None;
+        }
+        if self.grant_write_acp.as_deref() == Some("") {
+            self.grant_write_acp = None;
+        }
+        if let Some(ref val) = self.object_lock_legal_hold_status
+            && val.as_str() == ""
+        {
+            self.object_lock_legal_hold_status = None;
+        }
+        if let Some(ref val) = self.object_lock_mode
+            && val.as_str() == ""
+        {
+            self.object_lock_mode = None;
+        }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
+        }
+        if self.sse_customer_algorithm.as_deref() == Some("") {
+            self.sse_customer_algorithm = None;
+        }
+        if self.sse_customer_key.as_deref() == Some("") {
+            self.sse_customer_key = None;
+        }
+        if self.sse_customer_key_md5.as_deref() == Some("") {
+            self.sse_customer_key_md5 = None;
+        }
+        if self.ssekms_encryption_context.as_deref() == Some("") {
+            self.ssekms_encryption_context = None;
+        }
+        if self.ssekms_key_id.as_deref() == Some("") {
+            self.ssekms_key_id = None;
+        }
+        if let Some(ref val) = self.server_side_encryption
+            && val.as_str() == ""
+        {
+            self.server_side_encryption = None;
+        }
+        if let Some(ref val) = self.storage_class
+            && val.as_str() == ""
+        {
+            self.storage_class = None;
         }
         if self.tagging.as_deref() == Some("") {
             self.tagging = None;
@@ -34901,10 +37071,10 @@ impl DtoExt for PutObjectInput {
 }
 impl DtoExt for PutObjectLegalHoldInput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
         }
         if self.content_md5.as_deref() == Some("") {
             self.content_md5 = None;
@@ -34915,10 +37085,10 @@ impl DtoExt for PutObjectLegalHoldInput {
         if let Some(ref mut val) = self.legal_hold {
             val.ignore_empty_strings();
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
         if self.version_id.as_deref() == Some("") {
             self.version_id = None;
@@ -34927,19 +37097,19 @@ impl DtoExt for PutObjectLegalHoldInput {
 }
 impl DtoExt for PutObjectLegalHoldOutput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
     }
 }
 impl DtoExt for PutObjectLockConfigurationInput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
         }
         if self.content_md5.as_deref() == Some("") {
             self.content_md5 = None;
@@ -34950,10 +37120,10 @@ impl DtoExt for PutObjectLockConfigurationInput {
         if let Some(ref mut val) = self.object_lock_configuration {
             val.ignore_empty_strings();
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
         if self.token.as_deref() == Some("") {
             self.token = None;
@@ -34962,10 +37132,10 @@ impl DtoExt for PutObjectLockConfigurationInput {
 }
 impl DtoExt for PutObjectLockConfigurationOutput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
     }
 }
@@ -34986,18 +37156,18 @@ impl DtoExt for PutObjectOutput {
         if self.checksum_sha256.as_deref() == Some("") {
             self.checksum_sha256 = None;
         }
-        if let Some(ref val) = self.checksum_type {
-            if val.as_str() == "" {
-                self.checksum_type = None;
-            }
+        if let Some(ref val) = self.checksum_type
+            && val.as_str() == ""
+        {
+            self.checksum_type = None;
         }
         if self.expiration.as_deref() == Some("") {
             self.expiration = None;
         }
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
         if self.sse_customer_algorithm.as_deref() == Some("") {
             self.sse_customer_algorithm = None;
@@ -35011,10 +37181,10 @@ impl DtoExt for PutObjectOutput {
         if self.ssekms_key_id.as_deref() == Some("") {
             self.ssekms_key_id = None;
         }
-        if let Some(ref val) = self.server_side_encryption {
-            if val.as_str() == "" {
-                self.server_side_encryption = None;
-            }
+        if let Some(ref val) = self.server_side_encryption
+            && val.as_str() == ""
+        {
+            self.server_side_encryption = None;
         }
         if self.version_id.as_deref() == Some("") {
             self.version_id = None;
@@ -35023,10 +37193,10 @@ impl DtoExt for PutObjectOutput {
 }
 impl DtoExt for PutObjectRetentionInput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
         }
         if self.content_md5.as_deref() == Some("") {
             self.content_md5 = None;
@@ -35034,10 +37204,10 @@ impl DtoExt for PutObjectRetentionInput {
         if self.expected_bucket_owner.as_deref() == Some("") {
             self.expected_bucket_owner = None;
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
         if let Some(ref mut val) = self.retention {
             val.ignore_empty_strings();
@@ -35049,19 +37219,19 @@ impl DtoExt for PutObjectRetentionInput {
 }
 impl DtoExt for PutObjectRetentionOutput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
     }
 }
 impl DtoExt for PutObjectTaggingInput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
         }
         if self.content_md5.as_deref() == Some("") {
             self.content_md5 = None;
@@ -35069,10 +37239,10 @@ impl DtoExt for PutObjectTaggingInput {
         if self.expected_bucket_owner.as_deref() == Some("") {
             self.expected_bucket_owner = None;
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
         self.tagging.ignore_empty_strings();
         if self.version_id.as_deref() == Some("") {
@@ -35089,10 +37259,10 @@ impl DtoExt for PutObjectTaggingOutput {
 }
 impl DtoExt for PutPublicAccessBlockInput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
         }
         if self.content_md5.as_deref() == Some("") {
             self.content_md5 = None;
@@ -35124,10 +37294,10 @@ impl DtoExt for Redirect {
         if self.http_redirect_code.as_deref() == Some("") {
             self.http_redirect_code = None;
         }
-        if let Some(ref val) = self.protocol {
-            if val.as_str() == "" {
-                self.protocol = None;
-            }
+        if let Some(ref val) = self.protocol
+            && val.as_str() == ""
+        {
+            self.protocol = None;
         }
         if self.replace_key_prefix_with.as_deref() == Some("") {
             self.replace_key_prefix_with = None;
@@ -35139,10 +37309,10 @@ impl DtoExt for Redirect {
 }
 impl DtoExt for RedirectAllRequestsTo {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.protocol {
-            if val.as_str() == "" {
-                self.protocol = None;
-            }
+        if let Some(ref val) = self.protocol
+            && val.as_str() == ""
+        {
+            self.protocol = None;
         }
     }
 }
@@ -35211,18 +37381,18 @@ impl DtoExt for RequestProgress {
 }
 impl DtoExt for RestoreObjectInput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
         }
         if self.expected_bucket_owner.as_deref() == Some("") {
             self.expected_bucket_owner = None;
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
         if let Some(ref mut val) = self.restore_request {
             val.ignore_empty_strings();
@@ -35234,10 +37404,10 @@ impl DtoExt for RestoreObjectInput {
 }
 impl DtoExt for RestoreObjectOutput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
         if self.restore_output_path.as_deref() == Some("") {
             self.restore_output_path = None;
@@ -35258,15 +37428,15 @@ impl DtoExt for RestoreRequest {
         if let Some(ref mut val) = self.select_parameters {
             val.ignore_empty_strings();
         }
-        if let Some(ref val) = self.tier {
-            if val.as_str() == "" {
-                self.tier = None;
-            }
+        if let Some(ref val) = self.tier
+            && val.as_str() == ""
+        {
+            self.tier = None;
         }
-        if let Some(ref val) = self.type_ {
-            if val.as_str() == "" {
-                self.type_ = None;
-            }
+        if let Some(ref val) = self.type_
+            && val.as_str() == ""
+        {
+            self.type_ = None;
         }
     }
 }
@@ -35286,18 +37456,18 @@ impl DtoExt for S3KeyFilter {
 }
 impl DtoExt for S3Location {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.canned_acl {
-            if val.as_str() == "" {
-                self.canned_acl = None;
-            }
+        if let Some(ref val) = self.canned_acl
+            && val.as_str() == ""
+        {
+            self.canned_acl = None;
         }
         if let Some(ref mut val) = self.encryption {
             val.ignore_empty_strings();
         }
-        if let Some(ref val) = self.storage_class {
-            if val.as_str() == "" {
-                self.storage_class = None;
-            }
+        if let Some(ref val) = self.storage_class
+            && val.as_str() == ""
+        {
+            self.storage_class = None;
         }
         if let Some(ref mut val) = self.tagging {
             val.ignore_empty_strings();
@@ -35427,10 +37597,10 @@ impl DtoExt for TargetGrant {
         if let Some(ref mut val) = self.grantee {
             val.ignore_empty_strings();
         }
-        if let Some(ref val) = self.permission {
-            if val.as_str() == "" {
-                self.permission = None;
-            }
+        if let Some(ref val) = self.permission
+            && val.as_str() == ""
+        {
+            self.permission = None;
         }
     }
 }
@@ -35456,21 +37626,15 @@ impl DtoExt for TopicConfiguration {
 }
 impl DtoExt for Transition {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.storage_class {
-            if val.as_str() == "" {
-                self.storage_class = None;
-            }
+        if let Some(ref val) = self.storage_class
+            && val.as_str() == ""
+        {
+            self.storage_class = None;
         }
     }
 }
 impl DtoExt for UploadPartCopyInput {
     fn ignore_empty_strings(&mut self) {
-        if self.copy_source_if_match.as_deref() == Some("") {
-            self.copy_source_if_match = None;
-        }
-        if self.copy_source_if_none_match.as_deref() == Some("") {
-            self.copy_source_if_none_match = None;
-        }
         if self.copy_source_range.as_deref() == Some("") {
             self.copy_source_range = None;
         }
@@ -35489,10 +37653,10 @@ impl DtoExt for UploadPartCopyInput {
         if self.expected_source_bucket_owner.as_deref() == Some("") {
             self.expected_source_bucket_owner = None;
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
         if self.sse_customer_algorithm.as_deref() == Some("") {
             self.sse_customer_algorithm = None;
@@ -35513,10 +37677,10 @@ impl DtoExt for UploadPartCopyOutput {
         if self.copy_source_version_id.as_deref() == Some("") {
             self.copy_source_version_id = None;
         }
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
         if self.sse_customer_algorithm.as_deref() == Some("") {
             self.sse_customer_algorithm = None;
@@ -35527,19 +37691,19 @@ impl DtoExt for UploadPartCopyOutput {
         if self.ssekms_key_id.as_deref() == Some("") {
             self.ssekms_key_id = None;
         }
-        if let Some(ref val) = self.server_side_encryption {
-            if val.as_str() == "" {
-                self.server_side_encryption = None;
-            }
+        if let Some(ref val) = self.server_side_encryption
+            && val.as_str() == ""
+        {
+            self.server_side_encryption = None;
         }
     }
 }
 impl DtoExt for UploadPartInput {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.checksum_algorithm {
-            if val.as_str() == "" {
-                self.checksum_algorithm = None;
-            }
+        if let Some(ref val) = self.checksum_algorithm
+            && val.as_str() == ""
+        {
+            self.checksum_algorithm = None;
         }
         if self.checksum_crc32.as_deref() == Some("") {
             self.checksum_crc32 = None;
@@ -35562,10 +37726,10 @@ impl DtoExt for UploadPartInput {
         if self.expected_bucket_owner.as_deref() == Some("") {
             self.expected_bucket_owner = None;
         }
-        if let Some(ref val) = self.request_payer {
-            if val.as_str() == "" {
-                self.request_payer = None;
-            }
+        if let Some(ref val) = self.request_payer
+            && val.as_str() == ""
+        {
+            self.request_payer = None;
         }
         if self.sse_customer_algorithm.as_deref() == Some("") {
             self.sse_customer_algorithm = None;
@@ -35595,10 +37759,10 @@ impl DtoExt for UploadPartOutput {
         if self.checksum_sha256.as_deref() == Some("") {
             self.checksum_sha256 = None;
         }
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
         if self.sse_customer_algorithm.as_deref() == Some("") {
             self.sse_customer_algorithm = None;
@@ -35609,24 +37773,24 @@ impl DtoExt for UploadPartOutput {
         if self.ssekms_key_id.as_deref() == Some("") {
             self.ssekms_key_id = None;
         }
-        if let Some(ref val) = self.server_side_encryption {
-            if val.as_str() == "" {
-                self.server_side_encryption = None;
-            }
+        if let Some(ref val) = self.server_side_encryption
+            && val.as_str() == ""
+        {
+            self.server_side_encryption = None;
         }
     }
 }
 impl DtoExt for VersioningConfiguration {
     fn ignore_empty_strings(&mut self) {
-        if let Some(ref val) = self.mfa_delete {
-            if val.as_str() == "" {
-                self.mfa_delete = None;
-            }
+        if let Some(ref val) = self.mfa_delete
+            && val.as_str() == ""
+        {
+            self.mfa_delete = None;
         }
-        if let Some(ref val) = self.status {
-            if val.as_str() == "" {
-                self.status = None;
-            }
+        if let Some(ref val) = self.status
+            && val.as_str() == ""
+        {
+            self.status = None;
         }
     }
 }
@@ -35687,25 +37851,25 @@ impl DtoExt for WriteGetObjectResponseInput {
         if self.expiration.as_deref() == Some("") {
             self.expiration = None;
         }
-        if let Some(ref val) = self.object_lock_legal_hold_status {
-            if val.as_str() == "" {
-                self.object_lock_legal_hold_status = None;
-            }
+        if let Some(ref val) = self.object_lock_legal_hold_status
+            && val.as_str() == ""
+        {
+            self.object_lock_legal_hold_status = None;
         }
-        if let Some(ref val) = self.object_lock_mode {
-            if val.as_str() == "" {
-                self.object_lock_mode = None;
-            }
+        if let Some(ref val) = self.object_lock_mode
+            && val.as_str() == ""
+        {
+            self.object_lock_mode = None;
         }
-        if let Some(ref val) = self.replication_status {
-            if val.as_str() == "" {
-                self.replication_status = None;
-            }
+        if let Some(ref val) = self.replication_status
+            && val.as_str() == ""
+        {
+            self.replication_status = None;
         }
-        if let Some(ref val) = self.request_charged {
-            if val.as_str() == "" {
-                self.request_charged = None;
-            }
+        if let Some(ref val) = self.request_charged
+            && val.as_str() == ""
+        {
+            self.request_charged = None;
         }
         if self.restore.as_deref() == Some("") {
             self.restore = None;
@@ -35719,18 +37883,157 @@ impl DtoExt for WriteGetObjectResponseInput {
         if self.ssekms_key_id.as_deref() == Some("") {
             self.ssekms_key_id = None;
         }
-        if let Some(ref val) = self.server_side_encryption {
-            if val.as_str() == "" {
-                self.server_side_encryption = None;
-            }
+        if let Some(ref val) = self.server_side_encryption
+            && val.as_str() == ""
+        {
+            self.server_side_encryption = None;
         }
-        if let Some(ref val) = self.storage_class {
-            if val.as_str() == "" {
-                self.storage_class = None;
-            }
+        if let Some(ref val) = self.storage_class
+            && val.as_str() == ""
+        {
+            self.storage_class = None;
         }
         if self.version_id.as_deref() == Some("") {
             self.version_id = None;
         }
+    }
+}
+
+// NOTE: PostObject is a synthetic API in s3s.
+// PostObjectInput has extra fields for POST-specific behavior (success_action_redirect, success_action_status).
+pub(crate) fn put_object_input_into_post_object_input(x: PutObjectInput) -> PostObjectInput {
+    PostObjectInput {
+        acl: x.acl,
+        body: x.body,
+        bucket: x.bucket,
+        bucket_key_enabled: x.bucket_key_enabled,
+        cache_control: x.cache_control,
+        checksum_algorithm: x.checksum_algorithm,
+        checksum_crc32: x.checksum_crc32,
+        checksum_crc32c: x.checksum_crc32c,
+        checksum_crc64nvme: x.checksum_crc64nvme,
+        checksum_sha1: x.checksum_sha1,
+        checksum_sha256: x.checksum_sha256,
+        content_disposition: x.content_disposition,
+        content_encoding: x.content_encoding,
+        content_language: x.content_language,
+        content_length: x.content_length,
+        content_md5: x.content_md5,
+        content_type: x.content_type,
+        expected_bucket_owner: x.expected_bucket_owner,
+        expires: x.expires,
+        grant_full_control: x.grant_full_control,
+        grant_read: x.grant_read,
+        grant_read_acp: x.grant_read_acp,
+        grant_write_acp: x.grant_write_acp,
+        if_match: x.if_match,
+        if_none_match: x.if_none_match,
+        key: x.key,
+        metadata: x.metadata,
+        object_lock_legal_hold_status: x.object_lock_legal_hold_status,
+        object_lock_mode: x.object_lock_mode,
+        object_lock_retain_until_date: x.object_lock_retain_until_date,
+        request_payer: x.request_payer,
+        sse_customer_algorithm: x.sse_customer_algorithm,
+        sse_customer_key: x.sse_customer_key,
+        sse_customer_key_md5: x.sse_customer_key_md5,
+        ssekms_encryption_context: x.ssekms_encryption_context,
+        ssekms_key_id: x.ssekms_key_id,
+        server_side_encryption: x.server_side_encryption,
+        storage_class: x.storage_class,
+        tagging: x.tagging,
+        website_redirect_location: x.website_redirect_location,
+        write_offset_bytes: x.write_offset_bytes,
+        success_action_redirect: None,
+        success_action_status: None,
+        policy: None,
+    }
+}
+pub(crate) fn post_object_input_into_put_object_input(x: PostObjectInput) -> PutObjectInput {
+    PutObjectInput {
+        acl: x.acl,
+        body: x.body,
+        bucket: x.bucket,
+        bucket_key_enabled: x.bucket_key_enabled,
+        cache_control: x.cache_control,
+        checksum_algorithm: x.checksum_algorithm,
+        checksum_crc32: x.checksum_crc32,
+        checksum_crc32c: x.checksum_crc32c,
+        checksum_crc64nvme: x.checksum_crc64nvme,
+        checksum_sha1: x.checksum_sha1,
+        checksum_sha256: x.checksum_sha256,
+        content_disposition: x.content_disposition,
+        content_encoding: x.content_encoding,
+        content_language: x.content_language,
+        content_length: x.content_length,
+        content_md5: x.content_md5,
+        content_type: x.content_type,
+        expected_bucket_owner: x.expected_bucket_owner,
+        expires: x.expires,
+        grant_full_control: x.grant_full_control,
+        grant_read: x.grant_read,
+        grant_read_acp: x.grant_read_acp,
+        grant_write_acp: x.grant_write_acp,
+        if_match: x.if_match,
+        if_none_match: x.if_none_match,
+        key: x.key,
+        metadata: x.metadata,
+        object_lock_legal_hold_status: x.object_lock_legal_hold_status,
+        object_lock_mode: x.object_lock_mode,
+        object_lock_retain_until_date: x.object_lock_retain_until_date,
+        request_payer: x.request_payer,
+        sse_customer_algorithm: x.sse_customer_algorithm,
+        sse_customer_key: x.sse_customer_key,
+        sse_customer_key_md5: x.sse_customer_key_md5,
+        ssekms_encryption_context: x.ssekms_encryption_context,
+        ssekms_key_id: x.ssekms_key_id,
+        server_side_encryption: x.server_side_encryption,
+        storage_class: x.storage_class,
+        tagging: x.tagging,
+        website_redirect_location: x.website_redirect_location,
+        write_offset_bytes: x.write_offset_bytes,
+    }
+}
+pub(crate) fn put_object_output_into_post_object_output(x: PutObjectOutput) -> PostObjectOutput {
+    PostObjectOutput {
+        bucket_key_enabled: x.bucket_key_enabled,
+        checksum_crc32: x.checksum_crc32,
+        checksum_crc32c: x.checksum_crc32c,
+        checksum_crc64nvme: x.checksum_crc64nvme,
+        checksum_sha1: x.checksum_sha1,
+        checksum_sha256: x.checksum_sha256,
+        checksum_type: x.checksum_type,
+        e_tag: x.e_tag,
+        expiration: x.expiration,
+        request_charged: x.request_charged,
+        sse_customer_algorithm: x.sse_customer_algorithm,
+        sse_customer_key_md5: x.sse_customer_key_md5,
+        ssekms_encryption_context: x.ssekms_encryption_context,
+        ssekms_key_id: x.ssekms_key_id,
+        server_side_encryption: x.server_side_encryption,
+        size: x.size,
+        version_id: x.version_id,
+    }
+}
+#[allow(dead_code)]
+pub(crate) fn post_object_output_into_put_object_output(x: PostObjectOutput) -> PutObjectOutput {
+    PutObjectOutput {
+        bucket_key_enabled: x.bucket_key_enabled,
+        checksum_crc32: x.checksum_crc32,
+        checksum_crc32c: x.checksum_crc32c,
+        checksum_crc64nvme: x.checksum_crc64nvme,
+        checksum_sha1: x.checksum_sha1,
+        checksum_sha256: x.checksum_sha256,
+        checksum_type: x.checksum_type,
+        e_tag: x.e_tag,
+        expiration: x.expiration,
+        request_charged: x.request_charged,
+        sse_customer_algorithm: x.sse_customer_algorithm,
+        sse_customer_key_md5: x.sse_customer_key_md5,
+        ssekms_encryption_context: x.ssekms_encryption_context,
+        ssekms_key_id: x.ssekms_key_id,
+        server_side_encryption: x.server_side_encryption,
+        size: x.size,
+        version_id: x.version_id,
     }
 }

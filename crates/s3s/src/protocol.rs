@@ -1,6 +1,7 @@
 use crate::Body;
 use crate::StdError;
 use crate::auth::Credentials;
+use crate::region::Region;
 
 use http::Extensions;
 use http::HeaderMap;
@@ -51,7 +52,7 @@ impl TrailingHeaders {
     /// Returns true if trailers have been produced by the body stream.
     #[must_use]
     pub fn is_ready(&self) -> bool {
-        self.0.lock().map(|g| g.is_some()).unwrap_or(false)
+        self.0.lock().is_ok_and(|g| g.is_some())
     }
 
     /// Take the trailing headers if available.
@@ -64,10 +65,10 @@ impl TrailingHeaders {
 
     /// Read the trailing headers if available, without taking them.
     pub fn read<R>(&self, f: impl FnOnce(&HeaderMap) -> R) -> Option<R> {
-        if let Ok(guard) = self.0.lock() {
-            if let Some(ref headers) = *guard {
-                return Some(f(headers));
-            }
+        if let Ok(guard) = self.0.lock()
+            && let Some(ref headers) = *guard
+        {
+            return Some(f(headers));
         }
         None
     }
@@ -97,7 +98,7 @@ pub struct S3Request<T> {
     pub credentials: Option<Credentials>,
 
     /// S3 requested region.
-    pub region: Option<String>,
+    pub region: Option<Region>,
 
     /// S3 requested service.
     pub service: Option<String>,
@@ -184,5 +185,138 @@ impl<T> S3Response<T> {
             headers: self.headers,
             extensions: self.extensions,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- HttpError ---
+
+    #[test]
+    fn http_error_debug() {
+        let err = HttpError::new(Box::new(std::io::Error::other("test")));
+        let dbg = format!("{err:?}");
+        assert!(dbg.contains("test"));
+    }
+
+    #[test]
+    fn http_error_into_std_error() {
+        let err = HttpError::new(Box::new(std::io::Error::other("oops")));
+        let std_err: StdError = err.into();
+        assert!(std_err.to_string().contains("oops"));
+    }
+
+    // --- TrailingHeaders ---
+
+    #[test]
+    fn trailing_headers_not_ready() {
+        let th = TrailingHeaders(std::sync::Arc::new(std::sync::Mutex::new(None)));
+        assert!(!th.is_ready());
+        assert!(th.take().is_none());
+        assert!(th.read(|_| ()).is_none());
+    }
+
+    #[test]
+    fn trailing_headers_ready() {
+        let mut hm = HeaderMap::new();
+        hm.insert("x-test", "value".parse().unwrap());
+        let th = TrailingHeaders(std::sync::Arc::new(std::sync::Mutex::new(Some(hm))));
+
+        assert!(th.is_ready());
+        let val = th.read(|h| h.get("x-test").unwrap().to_str().unwrap().to_owned());
+        assert_eq!(val.as_deref(), Some("value"));
+    }
+
+    #[test]
+    fn trailing_headers_take() {
+        let mut hm = HeaderMap::new();
+        hm.insert("x-test", "val".parse().unwrap());
+        let th = TrailingHeaders(std::sync::Arc::new(std::sync::Mutex::new(Some(hm))));
+
+        let taken = th.take().unwrap();
+        assert_eq!(taken.get("x-test").unwrap(), "val");
+
+        // After take, it's gone
+        assert!(!th.is_ready());
+        assert!(th.take().is_none());
+    }
+
+    #[test]
+    fn trailing_headers_debug() {
+        let th = TrailingHeaders(std::sync::Arc::new(std::sync::Mutex::new(None)));
+        let dbg = format!("{th:?}");
+        assert!(dbg.contains("TrailingHeaders"));
+        assert!(dbg.contains("ready"));
+    }
+
+    #[test]
+    fn trailing_headers_clone() {
+        let mut hm = HeaderMap::new();
+        hm.insert("x-test", "val".parse().unwrap());
+        let th = TrailingHeaders(std::sync::Arc::new(std::sync::Mutex::new(Some(hm))));
+        let th2 = th.clone();
+        // Both point to the same data
+        assert!(th.is_ready());
+        assert!(th2.is_ready());
+        let _ = th.take();
+        // After take from one, the other also sees it gone
+        assert!(!th2.is_ready());
+    }
+
+    // --- S3Request ---
+
+    #[test]
+    fn s3_request_map_input() {
+        let req: S3Request<i32> = S3Request {
+            input: 42,
+            method: Method::GET,
+            uri: Uri::from_static("/"),
+            headers: HeaderMap::new(),
+            extensions: Extensions::default(),
+            credentials: None,
+            region: None,
+            service: None,
+            trailing_headers: None,
+        };
+        let mapped = req.map_input(|n| n.to_string());
+        assert_eq!(mapped.input, "42");
+        assert_eq!(mapped.method, Method::GET);
+    }
+
+    // --- S3Response ---
+
+    #[test]
+    fn s3_response_new() {
+        let resp = S3Response::new(123);
+        assert_eq!(resp.output, 123);
+        assert!(resp.status.is_none());
+        assert!(resp.headers.is_empty());
+    }
+
+    #[test]
+    fn s3_response_with_status() {
+        let resp = S3Response::with_status("ok", StatusCode::CREATED);
+        assert_eq!(resp.output, "ok");
+        assert_eq!(resp.status, Some(StatusCode::CREATED));
+    }
+
+    #[test]
+    fn s3_response_with_headers() {
+        let mut hm = HeaderMap::new();
+        hm.insert("x-custom", "val".parse().unwrap());
+        let resp = S3Response::with_headers(10, hm);
+        assert_eq!(resp.output, 10);
+        assert!(resp.status.is_none());
+        assert_eq!(resp.headers.get("x-custom").unwrap(), "val");
+    }
+
+    #[test]
+    fn s3_response_map_output() {
+        let resp = S3Response::with_status(5, StatusCode::OK);
+        let mapped = resp.map_output(|n| n * 2);
+        assert_eq!(mapped.output, 10);
+        assert_eq!(mapped.status, Some(StatusCode::OK));
     }
 }

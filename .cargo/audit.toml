@@ -1,0 +1,4 @@
+# Project-level cargo-audit configuration
+# See: https://github.com/RustSec/rustsec/blob/main/cargo-audit/audit.toml.example
+
+[advisories]

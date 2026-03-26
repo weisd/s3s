@@ -1,3 +1,9 @@
+//! Internal S3 operation dispatch, HTTP serialization, and deserialization.
+//!
+//! This module converts incoming HTTP requests into typed operation inputs,
+//! invokes the user-provided [`S3`](crate::S3) implementation, and converts
+//! the resulting outputs or errors back into HTTP responses.
+
 cfg_if::cfg_if! {
     if #[cfg(feature = "minio")] {
         mod generated_minio;
@@ -20,19 +26,19 @@ mod tests;
 
 use crate::access::{S3Access, S3AccessContext};
 use crate::auth::{Credentials, S3Auth};
+use crate::config::S3ConfigProvider;
 use crate::error::*;
 use crate::header;
 use crate::host::S3Host;
-use crate::http;
 use crate::http::Body;
+use crate::http::{self, BodySizeLimitExceeded};
 use crate::http::{OrderedHeaders, OrderedQs};
 use crate::http::{Request, Response};
 use crate::path::{ParseS3PathError, S3Path};
+use crate::post_policy::PostPolicy;
 use crate::protocol::S3Request;
 use crate::route::S3Route;
 use crate::s3_trait::S3;
-use crate::stream::VecByteStream;
-use crate::stream::aggregate_unlimited;
 use crate::validation::{AwsNameValidation, NameValidation};
 
 use std::mem;
@@ -57,6 +63,7 @@ pub trait Operation: Send + Sync + 'static {
 
 pub struct CallContext<'a> {
     pub s3: &'a Arc<dyn S3>,
+    pub config: &'a Arc<dyn S3ConfigProvider>,
     pub host: Option<&'a dyn S3Host>,
     pub auth: Option<&'a dyn S3Auth>,
     pub access: Option<&'a dyn S3Access>,
@@ -106,11 +113,30 @@ fn unknown_operation() -> S3Error {
     S3Error::with_message(S3ErrorCode::NotImplemented, "Unknown operation")
 }
 
+fn extract_http2_authority(req: &Request) -> Option<&str> {
+    if matches!(req.version, ::http::Version::HTTP_2 | ::http::Version::HTTP_3)
+        && let Some(authority) = req.uri.authority()
+    {
+        return Some(authority.as_str());
+    }
+    None
+}
+
 fn extract_host(req: &Request) -> S3Result<Option<String>> {
-    let Some(val) = req.headers.get(crate::header::HOST) else { return Ok(None) };
-    let on_err = |e| s3_error!(e, InvalidRequest, "invalid header: Host: {val:?}");
-    let host = val.to_str().map_err(on_err)?;
-    Ok(Some(host.into()))
+    // First try to get from Host header.
+    if let Some(val) = req.headers.get(crate::header::HOST) {
+        let on_err = |e| s3_error!(e, InvalidRequest, "invalid header: Host: {val:?}");
+        let host = val.to_str().map_err(on_err)?;
+        return Ok(Some(host.into()));
+    }
+
+    // For HTTP/2 and HTTP/3, the Host header is replaced by :authority pseudo-header.
+    // https://github.com/hyperium/hyper/discussions/2435
+    if let Some(authority) = extract_http2_authority(req) {
+        return Ok(Some(authority.into()));
+    }
+
+    Ok(None)
 }
 
 fn is_socket_addr_or_ip_addr(host: &str) -> bool {
@@ -144,18 +170,15 @@ fn extract_headers(headers: &HeaderMap) -> S3Result<OrderedHeaders<'_>> {
     OrderedHeaders::from_headers(headers).map_err(|source| invalid_request!(source, "invalid headers"))
 }
 
-fn extract_mime(hs: &OrderedHeaders<'_>) -> S3Result<Option<Mime>> {
-    let Some(content_type) = hs.get_unique(crate::header::CONTENT_TYPE) else { return Ok(None) };
+fn extract_mime(hs: &OrderedHeaders<'_>) -> Option<Mime> {
+    let content_type = hs.get_unique(crate::header::CONTENT_TYPE)?;
 
     // https://github.com/s3s-project/s3s/issues/361
     if content_type.is_empty() {
-        return Ok(None);
+        return None;
     }
 
-    match content_type.parse::<Mime>() {
-        Ok(x) => Ok(Some(x)),
-        Err(e) => Err(invalid_request!(e, "invalid content type")),
-    }
+    content_type.parse::<Mime>().ok()
 }
 
 fn extract_content_length(req: &Request) -> Option<u64> {
@@ -172,15 +195,18 @@ fn extract_decoded_content_length(hs: &'_ OrderedHeaders<'_>) -> S3Result<Option
     }
 }
 
-async fn extract_full_body(content_length: Option<u64>, body: &mut Body) -> S3Result<Bytes> {
+async fn extract_full_body(content_length: Option<u64>, body: &mut Body, max_body_size: usize) -> S3Result<Bytes> {
     if let Some(bytes) = body.bytes() {
         return Ok(bytes);
     }
 
-    let bytes = body
-        .store_all_unlimited()
-        .await
-        .map_err(|e| S3Error::with_source(S3ErrorCode::InternalError, e))?;
+    let bytes = body.store_all_limited(max_body_size).await.map_err(|e| {
+        if e.is::<BodySizeLimitExceeded>() {
+            S3Error::with_source(S3ErrorCode::MaxMessageLengthExceeded, e)
+        } else {
+            S3Error::with_source(S3ErrorCode::InternalError, e)
+        }
+    })?;
 
     if bytes.is_empty().not() {
         let content_length = content_length.ok_or(S3ErrorCode::MissingContentLength)?;
@@ -268,29 +294,32 @@ async fn prepare(req: &mut Request, ccx: &CallContext<'_>) -> S3Result<Prepare> 
         let host_header = extract_host(req)?;
         let vh;
         let vh_bucket;
+        let vh_region;
         {
             let default_validation = &const { AwsNameValidation::new() };
             let validation = ccx.validation.unwrap_or(default_validation);
 
             let result = 'parse: {
-                if let (Some(host_header), Some(s3_host)) = (host_header.as_deref(), ccx.host) {
-                    if !is_socket_addr_or_ip_addr(host_header) {
-                        debug!(?host_header, ?decoded_uri_path, "parsing virtual-hosted-style request");
+                if let (Some(host_header), Some(s3_host)) = (host_header.as_deref(), ccx.host)
+                    && !is_socket_addr_or_ip_addr(host_header)
+                {
+                    debug!(?host_header, ?decoded_uri_path, "parsing virtual-hosted-style request");
 
-                        vh = s3_host.parse_host_header(host_header)?;
-                        debug!(?vh);
+                    vh = s3_host.parse_host_header(host_header)?;
+                    debug!(?vh);
 
-                        vh_bucket = vh.bucket();
-                        break 'parse crate::path::parse_virtual_hosted_style_with_validation(
-                            vh_bucket,
-                            &decoded_uri_path,
-                            validation,
-                        );
-                    }
+                    vh_bucket = vh.bucket();
+                    vh_region = vh.region().map(str::to_owned);
+                    break 'parse crate::path::parse_virtual_hosted_style_with_validation(
+                        vh_bucket,
+                        &decoded_uri_path,
+                        validation,
+                    );
                 }
 
                 debug!(?decoded_uri_path, "parsing path-style request");
                 vh_bucket = None;
+                vh_region = None;
                 crate::path::parse_path_style_with_validation(&decoded_uri_path, validation)
             };
 
@@ -302,7 +331,7 @@ async fn prepare(req: &mut Request, ccx: &CallContext<'_>) -> S3Result<Prepare> 
         content_length = extract_content_length(req);
 
         let hs = extract_headers(&req.headers)?;
-        let mime = extract_mime(&hs)?;
+        let mime = extract_mime(&hs);
         let decoded_content_length = extract_decoded_content_length(&hs)?;
 
         let body_changed;
@@ -310,6 +339,7 @@ async fn prepare(req: &mut Request, ccx: &CallContext<'_>) -> S3Result<Prepare> 
         {
             let mut scx = SignatureContext {
                 auth: ccx.auth,
+                config: ccx.config,
 
                 req_version: req.version,
                 req_method: &req.method,
@@ -345,12 +375,47 @@ async fn prepare(req: &mut Request, ccx: &CallContext<'_>) -> S3Result<Prepare> 
                         access_key: cred.access_key,
                         secret_key: cred.secret_key,
                     });
-                    req.s3ext.region = cred.region;
+
+                    let cred_region = cred
+                        .region
+                        .filter(|s| !s.is_empty())
+                        .map(|s| crate::region::Region::new(s.into()))
+                        .transpose()
+                        .map_err(|e| invalid_request!("invalid credential region: {e}"))?;
+
+                    // When both the signature credential and S3Host supply a region,
+                    // the credential region is authoritative (it was verified by the
+                    // signature check). Log a debug warning if they disagree so that
+                    // misconfigured clients or hosts are visible in traces.
+                    if let (Some(cred_region), Some(host_region)) = (&cred_region, &vh_region)
+                        && cred_region.as_str() != host_region.as_str()
+                    {
+                        debug!(
+                            cred_region = %cred_region,
+                            host_region = %host_region,
+                            "credential region and virtual-host region differ; \
+                             using credential region"
+                        );
+                    }
+
+                    req.s3ext.region = cred_region;
                     req.s3ext.service = cred.service;
                 }
                 None => {
                     req.s3ext.credentials = None;
+                    req.s3ext.region = None;
+                    req.s3ext.service = None;
                 }
+            }
+
+            // Fallback: if no region was determined from the signature credential
+            // (anonymous requests, SigV2), use the region provided by S3Host.
+            if req.s3ext.region.is_none() {
+                req.s3ext.region = vh_region
+                    .filter(|s| !s.is_empty())
+                    .map(|s| crate::region::Region::new(s.into()))
+                    .transpose()
+                    .map_err(|e| invalid_request!("invalid host region: {e}"))?;
             }
         }
 
@@ -371,41 +436,95 @@ async fn prepare(req: &mut Request, ccx: &CallContext<'_>) -> S3Result<Prepare> 
         debug!(?body_changed, ?decoded_content_length, ?has_multipart);
     }
 
-    if let Some(route) = ccx.route {
-        if route.is_match(&req.method, &req.uri, &req.headers, &mut req.extensions) {
-            return Ok(Prepare::CustomRoute);
-        }
+    if let Some(route) = ccx.route
+        && route.is_match(&req.method, &req.uri, &req.headers, &mut req.extensions)
+    {
+        return Ok(Prepare::CustomRoute);
     }
 
     let (op, needs_full_body) = 'resolve: {
-        if let Some(multipart) = &mut req.s3ext.multipart {
-            if req.method == Method::POST {
-                match s3_path {
-                    S3Path::Root => return Err(unknown_operation()),
-                    S3Path::Bucket { .. } => {
-                        // POST object
-                        debug!(?multipart);
-                        let file_stream = multipart.take_file_stream().expect("missing file stream");
-                        let vec_bytes = aggregate_unlimited(file_stream).await.map_err(S3Error::internal_error)?;
-                        let vec_stream = VecByteStream::new(vec_bytes);
-                        req.s3ext.vec_stream = Some(vec_stream);
-                        break 'resolve (&PutObject as &'static dyn Operation, false);
+        if let Some(multipart) = &mut req.s3ext.multipart
+            && req.method == Method::POST
+        {
+            match s3_path {
+                S3Path::Root => return Err(unknown_operation()),
+                S3Path::Bucket { bucket } => {
+                    // POST object
+                    debug!(?multipart);
+
+                    // Parse POST policy BEFORE reading file stream to prevent resource exhaustion
+                    // See https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-HTTPPOSTConstructPolicy.html
+                    let now = time::OffsetDateTime::now_utc();
+                    let policy = if let Some(policy_b64) = multipart.find_field_value("policy") {
+                        let policy = PostPolicy::from_base64(policy_b64)
+                            .map_err(|e| s3_error!(e, InvalidPolicyDocument, "failed to parse POST policy"))?;
+
+                        // Check policy expiration early to avoid reading file if policy is expired
+                        // Note: clone is necessary because Into<OffsetDateTime> consumes the Timestamp
+                        let expiration_time: time::OffsetDateTime = policy.expiration.clone().into();
+                        if now >= expiration_time {
+                            return Err(S3Error::with_message(S3ErrorCode::AccessDenied, "Request has expired"));
+                        }
+
+                        Some(policy)
+                    } else {
+                        None
+                    };
+
+                    // Determine file size limit: use stricter of policy max or config max
+                    let config = ccx.config.snapshot();
+                    let max_file_size = if let Some(ref pol) = policy {
+                        if let Some((_, max)) = pol.content_length_range() {
+                            // Use the minimum of policy max and config max to prevent resource exhaustion
+                            // Note: policy min is validated later in policy.validate()
+                            std::cmp::min(max, config.post_object_max_file_size)
+                        } else {
+                            config.post_object_max_file_size
+                        }
+                    } else {
+                        config.post_object_max_file_size
+                    };
+
+                    // Aggregate file stream with size limit to get known length
+                    // This is required because downstream handlers (like s3s-proxy) need content-length
+                    let file_stream = multipart.take_file_stream().expect("missing file stream");
+                    let vec_bytes = http::aggregate_file_stream_limited(file_stream, max_file_size)
+                        .await
+                        .map_err(|e| match e {
+                            http::MultipartError::FileTooLarge(..) => {
+                                s3_error!(EntityTooLarge, "Your proposed upload exceeds the maximum allowed object size.")
+                            }
+                            other => invalid_request!(other, "failed to read file stream"),
+                        })?;
+                    // Use saturating_add to prevent overflow in release builds (security-relevant for content-length-range validation)
+                    let file_size: u64 = vec_bytes.iter().map(|b| b.len() as u64).fold(0u64, u64::saturating_add);
+                    let vec_stream = crate::stream::VecByteStream::new(vec_bytes);
+                    req.s3ext.vec_stream = Some(vec_stream);
+
+                    // Validate the policy conditions (if policy exists)
+                    // Note: expiration was already checked above before reading the file
+                    // Pass the URL bucket so that the "bucket" condition can be validated
+                    // even when clients (like boto3) don't include it in form fields.
+                    if let Some(policy) = policy {
+                        policy.validate_conditions_only(multipart, file_size, Some(bucket))?;
+                        req.s3ext.post_policy = Some(policy);
                     }
-                    // FIXME: POST /bucket/key hits this branch
-                    S3Path::Object { .. } => return Err(s3_error!(MethodNotAllowed)),
+
+                    break 'resolve (&PostObject as &'static dyn Operation, false);
                 }
+                // FIXME: POST /bucket/key hits this branch
+                S3Path::Object { .. } => return Err(s3_error!(MethodNotAllowed)),
             }
         }
         resolve_route(req, s3_path, req.s3ext.qs.as_ref())?
     };
 
     // FIXME: hack for E2E tests (minio/mint)
-    if op.name() == "ListObjects" {
-        if let Some(qs) = req.s3ext.qs.as_ref() {
-            if qs.has("events") {
-                return Err(s3_error!(NotImplemented, "listenBucketNotification only works on MinIO"));
-            }
-        }
+    if op.name() == "ListObjects"
+        && let Some(qs) = req.s3ext.qs.as_ref()
+        && qs.has("events")
+    {
+        return Err(s3_error!(NotImplemented, "listenBucketNotification only works on MinIO"));
     }
 
     debug!(op = %op.name(), ?s3_path, "resolved route");
@@ -429,7 +548,8 @@ async fn prepare(req: &mut Request, ccx: &CallContext<'_>) -> S3Result<Prepare> 
     debug!(op = %op.name(), ?s3_path, "checked access");
 
     if needs_full_body {
-        extract_full_body(content_length, &mut req.body).await?;
+        let config = ccx.config.snapshot();
+        extract_full_body(content_length, &mut req.body, config.xml_max_body_size).await?;
     }
 
     Ok(Prepare::S3(op))

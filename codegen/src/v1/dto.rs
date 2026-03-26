@@ -1,5 +1,6 @@
 use super::o;
 use super::ops::{Operations, SKIPPED_OPS, is_op_input};
+use super::order;
 use super::rust::codegen_doc;
 use super::smithy::SmithyTraitsExt;
 use super::{rust, smithy};
@@ -8,7 +9,7 @@ use crate::declare_codegen;
 use crate::v1::Patch;
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Not;
 
 use heck::{ToShoutySnakeCase, ToSnakeCase};
@@ -46,8 +47,25 @@ pub fn collect_rust_types(model: &smithy::Model, ops: &Operations) -> RustTypes 
             "ETag",          //
         ];
 
+        // ETag-related header types that should be aliased to ETagCondition instead of String
+        // These headers support both ETags and the wildcard "*" value
+        let etag_condition_alias_types = [
+            "IfMatch",               //
+            "IfNoneMatch",           //
+            "CopySourceIfMatch",     //
+            "CopySourceIfNoneMatch", //
+        ];
+
         if provided_types.contains(&rs_shape_name.as_str()) {
             let ty = rust::Type::provided(&rs_shape_name);
+            insert(rs_shape_name, ty);
+            continue;
+        }
+
+        if etag_condition_alias_types.contains(&rs_shape_name.as_str())
+            && let smithy::Shape::String(shape) = shape
+        {
+            let ty = rust::Type::alias(&rs_shape_name, "ETagCondition", shape.traits.doc());
             insert(rs_shape_name, ty);
             continue;
         }
@@ -134,7 +152,25 @@ pub fn collect_rust_types(model: &smithy::Model, ops: &Operations) -> RustTypes 
             }
             smithy::Shape::Structure(shape) => {
                 let mut fields = Vec::new();
-                for (field_name, field) in &shape.members {
+                let member_list: Vec<(&str, &smithy::StructureMember)> =
+                    if let Some(order) = order::struct_member_order(&rs_shape_name) {
+                        let order_set: BTreeSet<&str> = order.iter().copied().collect();
+                        let mut list = Vec::new();
+                        for &name in order {
+                            if let Some(field) = shape.members.get(name) {
+                                list.push((name, field));
+                            }
+                        }
+                        for (name, field) in &shape.members {
+                            if !order_set.contains(name.as_str()) {
+                                list.push((name.as_str(), field));
+                            }
+                        }
+                        list
+                    } else {
+                        shape.members.iter().map(|(k, v)| (k.as_str(), v)).collect()
+                    };
+                for (field_name, field) in member_list {
                     let rs_field_name = if field_name == "Type" {
                         "type_".into()
                     } else {
@@ -195,7 +231,7 @@ pub fn collect_rust_types(model: &smithy::Model, ops: &Operations) -> RustTypes 
                         type_: field_type,
                         doc: field.traits.doc().map(o),
 
-                        camel_name: field_name.clone(),
+                        camel_name: field_name.to_owned(),
 
                         option_type,
                         default_value,
@@ -243,6 +279,7 @@ pub fn collect_rust_types(model: &smithy::Model, ops: &Operations) -> RustTypes 
                     name: rs_shape_name.clone(),
                     variants,
                     doc: shape.traits.doc().map(o),
+                    is_custom_extension: shape.traits.minio(),
                 });
                 insert(rs_shape_name, ty);
             }
@@ -253,6 +290,56 @@ pub fn collect_rust_types(model: &smithy::Model, ops: &Operations) -> RustTypes 
 
     patch_types(&mut space);
     unify_operation_types(ops, &mut space);
+
+    // POST Object is not a Smithy-modeled operation in the upstream S3 model.
+    // We still want to distinguish it from PutObject at the trait layer.
+    // Fork the unified DTO types so behavior can stay identical,
+    // while leaving room to extend PostObject* with POST-only fields later.
+    for (src, dst) in [("PutObjectInput", "PostObjectInput"), ("PutObjectOutput", "PostObjectOutput")] {
+        if let Some(src_ty) = space.get(src).cloned() {
+            let mut dst_ty = src_ty;
+            match &mut dst_ty {
+                rust::Type::Struct(s) => {
+                    dst.clone_into(&mut s.name);
+                }
+                _ => {
+                    // PutObject{Input,Output} are expected to be structs.
+                    unimplemented!("{src} is not a struct");
+                }
+            }
+            assert!(space.insert(dst.to_owned(), dst_ty).is_none());
+        }
+    }
+
+    // Add POST Object specific fields to PostObjectInput
+    if let Some(rust::Type::Struct(post_in)) = space.get_mut("PostObjectInput") {
+        post_in.fields.push(rust::StructField {
+            name: o("success_action_redirect"),
+            type_: o("String"),
+            option_type: true,
+            position: o("s3s"),
+            doc: Some(o("The URL to which the client is redirected upon successful upload.")),
+            ..rust::StructField::default()
+        });
+        post_in.fields.push(rust::StructField {
+            name: o("success_action_status"),
+            type_: o("i32"),
+            option_type: true,
+            position: o("s3s"),
+            doc: Some(o(
+                "The status code returned to the client upon successful upload. Valid values are 200, 201, and 204.",
+            )),
+            ..rust::StructField::default()
+        });
+        post_in.fields.push(rust::StructField {
+            name: o("policy"),
+            type_: o("PostPolicy"),
+            option_type: true,
+            position: o("s3s"),
+            doc: Some(o("The POST policy document that was included in the request.")),
+            ..rust::StructField::default()
+        });
+    }
 
     space
 }
@@ -358,6 +445,9 @@ fn unify_operation_types(ops: &Operations, space: &mut RustTypes) {
 
     // unify operation input type
     for op in ops.values() {
+        if op.name == "PostObject" {
+            continue;
+        }
         if op.name == "SelectObjectContent" {
             continue;
         }
@@ -381,6 +471,9 @@ fn unify_operation_types(ops: &Operations, space: &mut RustTypes) {
 
     // unify operation output type
     for op in ops.values() {
+        if op.name == "PostObject" {
+            continue;
+        }
         let output_ty = if op.smithy_output == "Unit" {
             rust::Struct {
                 name: op.output.clone(),
@@ -407,8 +500,120 @@ fn unify_operation_types(ops: &Operations, space: &mut RustTypes) {
     }
 }
 
+fn collect_types_needing_serde(rust_types: &RustTypes) -> BTreeSet<String> {
+    let mut types_needing_serde = BTreeSet::new();
+
+    // Start with Configuration types and special types
+    for name in rust_types.keys() {
+        if name.ends_with("Configuration") || name == "Tag" || name == "Tagging" {
+            collect_type_dependencies(name, rust_types, &mut types_needing_serde);
+        }
+    }
+
+    types_needing_serde
+}
+
+fn collect_types_needing_custom_default(rust_types: &RustTypes, ops: &Operations) -> BTreeSet<String> {
+    let mut types_needing_custom_default = BTreeSet::new();
+
+    // Start with Configuration types that can't derive Default
+    for (name, rust_type) in rust_types {
+        if name.ends_with("Configuration")
+            && let rust::Type::Struct(ty) = rust_type
+            && !can_derive_default(ty, rust_types)
+        {
+            // Add this type and all its struct dependencies
+            collect_struct_dependencies(name, rust_types, &mut types_needing_custom_default);
+        }
+    }
+
+    // Also include operation output types that can't derive Default
+    for op in ops.values() {
+        if let Some(rust::Type::Struct(ty)) = rust_types.get(&op.output)
+            && !can_derive_default(ty, rust_types)
+        {
+            collect_struct_dependencies(&op.output, rust_types, &mut types_needing_custom_default);
+        }
+    }
+
+    types_needing_custom_default
+}
+
+fn collect_struct_dependencies(type_name: &str, rust_types: &RustTypes, result: &mut BTreeSet<String>) {
+    // Avoid infinite recursion
+    if result.contains(type_name) {
+        return;
+    }
+
+    // Only add this type if it can't derive Default
+    if let Some(rust::Type::Struct(s)) = rust_types.get(type_name)
+        && !can_derive_default(s, rust_types)
+    {
+        result.insert(type_name.to_owned());
+
+        // Recursively add struct dependencies that also can't derive Default
+        for field in &s.fields {
+            // Skip optional fields and list/map types (they already have Default)
+            if field.option_type {
+                continue;
+            }
+
+            if let Some(field_type) = rust_types.get(&field.type_) {
+                match field_type {
+                    rust::Type::Struct(_) => {
+                        collect_struct_dependencies(&field.type_, rust_types, result);
+                    }
+                    rust::Type::List(_) | rust::Type::Map(_) => {
+                        // Lists and maps already have Default, skip
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+fn collect_type_dependencies(type_name: &str, rust_types: &RustTypes, result: &mut BTreeSet<String>) {
+    // Avoid infinite recursion
+    if result.contains(type_name) {
+        return;
+    }
+
+    result.insert(type_name.to_owned());
+
+    // Get the type and recursively add dependencies
+    if let Some(rust_type) = rust_types.get(type_name) {
+        match rust_type {
+            rust::Type::Struct(s) => {
+                for field in &s.fields {
+                    // Skip non-serializable fields
+                    if matches!(field.type_.as_str(), "Body" | "StreamingBlob" | "SelectObjectContentEventStream") {
+                        continue;
+                    }
+                    collect_type_dependencies(&field.type_, rust_types, result);
+                }
+            }
+            rust::Type::List(list) => {
+                collect_type_dependencies(&list.member.type_, rust_types, result);
+            }
+            rust::Type::StructEnum(e) => {
+                for variant in &e.variants {
+                    collect_type_dependencies(&variant.type_, rust_types, result);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 pub fn codegen(rust_types: &RustTypes, ops: &Operations, patch: Option<Patch>) {
     declare_codegen!();
+
+    // Collect types that need serde derives (Configuration types and their dependencies)
+    let types_needing_serde = collect_types_needing_serde(rust_types);
+
+    // Collect types that need custom Default implementations
+    let types_needing_custom_default = collect_types_needing_custom_default(rust_types, ops);
 
     g([
         "#![allow(clippy::empty_structs_with_brackets)]",
@@ -416,6 +621,7 @@ pub fn codegen(rust_types: &RustTypes, ops: &Operations, patch: Option<Patch>) {
         "",
         "use super::*;",
         "use crate::error::S3Result;",
+        "use crate::post_policy::PostPolicy;",
         "",
         "use std::borrow::Cow;",
         "use std::convert::Infallible;",
@@ -444,13 +650,17 @@ pub fn codegen(rust_types: &RustTypes, ops: &Operations, patch: Option<Patch>) {
                 g!("pub type {} = Map<{}, {}>;", ty.name, ty.key_type, ty.value_type);
             }
             rust::Type::StrEnum(ty) => {
-                codegen_str_enum(ty, rust_types);
+                let needs_serde = types_needing_serde.contains(&ty.name);
+                codegen_str_enum(ty, rust_types, needs_serde);
             }
             rust::Type::Struct(ty) => {
-                codegen_struct(ty, rust_types, ops);
+                let needs_serde = types_needing_serde.contains(&ty.name);
+                let needs_custom_default = types_needing_custom_default.contains(&ty.name);
+                codegen_struct(ty, rust_types, ops, needs_serde, needs_custom_default);
             }
             rust::Type::StructEnum(ty) => {
-                codegen_struct_enum(ty, rust_types);
+                let needs_serde = types_needing_serde.contains(&ty.name);
+                codegen_struct_enum(ty, rust_types, needs_serde);
             }
             rust::Type::Timestamp(ty) => {
                 codegen_doc(ty.doc.as_deref());
@@ -460,21 +670,97 @@ pub fn codegen(rust_types: &RustTypes, ops: &Operations, patch: Option<Patch>) {
         g!();
     }
 
-    codegen_tests(ops);
+    codegen_tests(ops, rust_types);
     codegen_builders(rust_types, ops);
 
     codegen_dto_ext(rust_types);
+    codegen_post_object_mapping_helpers(rust_types);
 
     if matches!(patch, Some(Patch::Minio)) {
         super::minio::codegen_in_dto();
     }
 }
 
-fn codegen_struct(ty: &rust::Struct, rust_types: &RustTypes, ops: &Operations) {
+fn codegen_post_object_mapping_helpers(rust_types: &RustTypes) {
+    let Some(rust::Type::Struct(put_in)) = rust_types.get("PutObjectInput") else { return };
+    let Some(rust::Type::Struct(put_out)) = rust_types.get("PutObjectOutput") else { return };
+    let Some(rust::Type::Struct(post_in)) = rust_types.get("PostObjectInput") else { return };
+    let Some(rust::Type::Struct(post_out)) = rust_types.get("PostObjectOutput") else { return };
+
+    // PostObjectInput has extra fields (success_action_redirect, success_action_status).
+    // We verify that the common fields (those from PutObjectInput) match.
+    assert!(post_in.fields.len() >= put_in.fields.len());
+    for (a, b) in put_in.fields.iter().zip(post_in.fields.iter()) {
+        assert_eq!(a.name, b.name);
+        assert_eq!(a.type_, b.type_);
+        assert_eq!(a.option_type, b.option_type);
+    }
+    assert_eq!(put_out.fields.len(), post_out.fields.len());
+    for (a, b) in put_out.fields.iter().zip(post_out.fields.iter()) {
+        assert_eq!(a.name, b.name);
+        assert_eq!(a.type_, b.type_);
+        assert_eq!(a.option_type, b.option_type);
+    }
+
+    // Collect POST-only field names (those not in PutObjectInput)
+    let put_in_field_names: std::collections::BTreeSet<_> = put_in.fields.iter().map(|f| f.name.as_str()).collect();
+    let post_only_fields: Vec<_> = post_in
+        .fields
+        .iter()
+        .filter(|f| !put_in_field_names.contains(f.name.as_str()))
+        .collect();
+
+    g!();
+    g([
+        "// NOTE: PostObject is a synthetic API in s3s.",
+        "// PostObjectInput has extra fields for POST-specific behavior (success_action_redirect, success_action_status).",
+    ]);
+
+    g!("pub(crate) fn put_object_input_into_post_object_input(x: PutObjectInput) -> PostObjectInput {{");
+    g!("    PostObjectInput {{");
+    for field in &put_in.fields {
+        g!("        {}: x.{},", field.name, field.name);
+    }
+    // POST-only fields get default values
+    for field in &post_only_fields {
+        g!("        {}: None,", field.name);
+    }
+    g!("    }}");
+    g!("}}");
+
+    g!("pub(crate) fn post_object_input_into_put_object_input(x: PostObjectInput) -> PutObjectInput {{");
+    g!("    PutObjectInput {{");
+    // Only copy fields that exist in PutObjectInput
+    for field in &put_in.fields {
+        g!("        {}: x.{},", field.name, field.name);
+    }
+    g!("    }}");
+    g!("}}");
+
+    g!("pub(crate) fn put_object_output_into_post_object_output(x: PutObjectOutput) -> PostObjectOutput {{");
+    g!("    PostObjectOutput {{");
+    for field in &put_out.fields {
+        g!("        {}: x.{},", field.name, field.name);
+    }
+    g!("    }}");
+    g!("}}");
+
+    // This function is currently unused but kept for symmetry and potential future use
+    g!("#[allow(dead_code)]");
+    g!("pub(crate) fn post_object_output_into_put_object_output(x: PostObjectOutput) -> PutObjectOutput {{");
+    g!("    PutObjectOutput {{");
+    for field in &post_out.fields {
+        g!("        {}: x.{},", field.name, field.name);
+    }
+    g!("    }}");
+    g!("}}");
+}
+
+fn codegen_struct(ty: &rust::Struct, rust_types: &RustTypes, ops: &Operations, needs_serde: bool, needs_custom_default: bool) {
     codegen_doc(ty.doc.as_deref());
 
     {
-        let derives = struct_derives(ty, rust_types);
+        let derives = struct_derives(ty, rust_types, ops, needs_serde);
         if !derives.is_empty() {
             g!("#[derive({})]", derives.join(", "));
         }
@@ -547,6 +833,11 @@ fn codegen_struct(ty: &rust::Struct, rust_types: &RustTypes, ops: &Operations) {
         g!("}}");
     }
 
+    // Add custom Default implementation for types that need it
+    if needs_custom_default {
+        codegen_custom_default(ty, rust_types);
+    }
+
     if is_op_input(&ty.name, ops) {
         g!("impl {} {{", ty.name);
 
@@ -559,9 +850,52 @@ fn codegen_struct(ty: &rust::Struct, rust_types: &RustTypes, ops: &Operations) {
     }
 }
 
-fn codegen_str_enum(ty: &rust::StrEnum, _rust_types: &RustTypes) {
+fn codegen_custom_default(ty: &rust::Struct, rust_types: &RustTypes) {
+    g!("impl Default for {} {{", ty.name);
+    g!("fn default() -> Self {{");
+    g!("Self {{");
+    for field in &ty.fields {
+        if field.option_type {
+            g!("{}: None,", field.name);
+        } else if let Some(rust_type) = rust_types.get(&field.type_) {
+            match rust_type {
+                rust::Type::List(_) | rust::Type::Map(_) => {
+                    g!("{}: default(),", field.name);
+                }
+                rust::Type::Alias(_) => {
+                    // Type aliases to primitives implement Default
+                    g!("{}: default(),", field.name);
+                }
+                rust::Type::StrEnum(_) => {
+                    // StrEnum types need a string value, use empty string
+                    g!("{}: String::new().into(),", field.name);
+                }
+                rust::Type::Struct(_) => {
+                    // Try to use Default::default() for structs
+                    g!("{}: default(),", field.name);
+                }
+                _ => {
+                    g!("{}: default(),", field.name);
+                }
+            }
+        } else {
+            // Unknown type, try Default::default()
+            g!("{}: default(),", field.name);
+        }
+    }
+    g!("}}");
+    g!("}}");
+    g!("}}");
+    g!();
+}
+
+fn codegen_str_enum(ty: &rust::StrEnum, _rust_types: &RustTypes, needs_serde: bool) {
     codegen_doc(ty.doc.as_deref());
-    g!("#[derive(Debug, Clone, PartialEq, Eq)]");
+    if needs_serde {
+        g!("#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]");
+    } else {
+        g!("#[derive(Debug, Clone, PartialEq, Eq)]");
+    }
     g!("pub struct {}(Cow<'static, str>);", ty.name);
     g!();
 
@@ -614,10 +948,37 @@ fn codegen_str_enum(ty: &rust::StrEnum, _rust_types: &RustTypes) {
     g!("}}");
 }
 
-fn codegen_struct_enum(ty: &rust::StructEnum, _rust_types: &RustTypes) {
+fn codegen_struct_enum(ty: &rust::StructEnum, rust_types: &RustTypes, needs_serde: bool) {
     codegen_doc(ty.doc.as_deref());
-    g!("#[derive(Debug, Clone, PartialEq)]");
-    g!("#[non_exhaustive]");
+
+    if needs_serde {
+        // Check if all variants can be serialized
+        let can_serde = ty.variants.iter().all(|v| {
+            // Check for known non-serializable types
+            if matches!(v.type_.as_str(), "Body" | "StreamingBlob" | "SelectObjectContentEventStream") {
+                return false;
+            }
+
+            // Check if the variant type can be serialized
+            match rust_types.get(&v.type_) {
+                Some(rust::Type::Struct(s)) => can_derive_serde(s, rust_types),
+                _ => true,
+            }
+        });
+
+        if can_serde {
+            g!("#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]");
+            g!("#[non_exhaustive]");
+            g!("#[serde(rename_all = \"PascalCase\")]");
+        } else {
+            g!("#[derive(Debug, Clone, PartialEq)]");
+            g!("#[non_exhaustive]");
+        }
+    } else {
+        g!("#[derive(Debug, Clone, PartialEq)]");
+        g!("#[non_exhaustive]");
+    }
+
     g!("pub enum {} {{", ty.name);
 
     for variant in &ty.variants {
@@ -628,13 +989,14 @@ fn codegen_struct_enum(ty: &rust::StructEnum, _rust_types: &RustTypes) {
     g!("}}");
 }
 
-fn codegen_tests(ops: &Operations) {
+fn codegen_tests(ops: &Operations, rust_types: &RustTypes) {
     g([
         "#[cfg(test)]",
         "mod tests {",
         "use super::*;",
         "",
         "fn require_default<T: Default>() {}",
+        "fn require_clone<T: Clone>() {}",
         "",
     ]);
 
@@ -647,12 +1009,31 @@ fn codegen_tests(ops: &Operations) {
         g!("}}");
     }
 
+    {
+        g!("#[test]");
+        g!("fn test_clone() {{");
+        for op in ops.values() {
+            if let Some(rust::Type::Struct(ty)) = rust_types.get(&op.input)
+                && can_derive_clone(ty, rust_types)
+            {
+                g!("require_clone::<{}>();", op.input);
+            }
+            if let Some(rust::Type::Struct(ty)) = rust_types.get(&op.output)
+                && can_derive_clone(ty, rust_types)
+            {
+                g!("require_clone::<{}>();", op.output);
+            }
+        }
+        g!("}}");
+    }
+
     g!("}}");
 }
 
-fn struct_derives(ty: &rust::Struct, rust_types: &RustTypes) -> Vec<&'static str> {
+fn struct_derives(ty: &rust::Struct, rust_types: &RustTypes, _ops: &Operations, needs_serde: bool) -> Vec<&'static str> {
     let mut derives = Vec::new();
-    if can_derive_clone(ty, rust_types) {
+    let can_clone = can_derive_clone(ty, rust_types);
+    if can_clone {
         derives.push("Clone");
     }
     if can_derive_default(ty, rust_types) {
@@ -661,16 +1042,57 @@ fn struct_derives(ty: &rust::Struct, rust_types: &RustTypes) -> Vec<&'static str
     if can_derive_partial_eq(ty, rust_types) {
         derives.push("PartialEq");
     }
-    // What to do with other types?
-    if ty.name == "Tagging" || ty.name == "Tag" {
+
+    // Add Serialize and Deserialize only to types that are needed for Configuration serialization
+    if needs_serde && can_derive_serde(ty, rust_types) {
         derives.push("Serialize");
         derives.push("Deserialize");
     }
     derives
 }
 
+fn can_derive_serde(ty: &rust::Struct, rust_types: &RustTypes) -> bool {
+    ty.fields.iter().all(|field| {
+        if field.position == "sealed" {
+            // Allow sealed CachedTags fields since they have custom Serialize/Deserialize implementation
+            if field.type_ != "CachedTags" {
+                return false;
+            }
+        }
+        if field.position == "s3s" {
+            return false;
+        }
+        // Body, StreamingBlob, and event streams can't be serialized with regular serde
+        // Note: CachedTags is now serializable with custom implementation
+        if matches!(field.type_.as_str(), "Body" | "StreamingBlob" | "SelectObjectContentEventStream") {
+            return false;
+        }
+
+        // Check if the field's type can be serialized recursively
+        if let Some(field_ty) = rust_types.get(&field.type_) {
+            match field_ty {
+                rust::Type::Struct(s) if !can_derive_serde(s, rust_types) => {
+                    return false;
+                }
+                rust::Type::List(list) => {
+                    // Check if the list element type can be serialized
+                    if let Some(rust::Type::Struct(s)) = rust_types.get(&list.member.type_)
+                        && !can_derive_serde(s, rust_types)
+                    {
+                        return false;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        true
+    })
+}
+
 fn can_derive_clone(ty: &rust::Struct, _rust_types: &RustTypes) -> bool {
     ty.fields.iter().all(|field| {
+        // Sealed fields need custom Clone implementation
         if field.position == "sealed" {
             return false;
         }
@@ -686,6 +1108,7 @@ fn can_derive_clone(ty: &rust::Struct, _rust_types: &RustTypes) -> bool {
 
 fn can_derive_partial_eq(ty: &rust::Struct, _rust_types: &RustTypes) -> bool {
     ty.fields.iter().all(|field| {
+        // Sealed fields need custom PartialEq implementation
         if field.position == "sealed" {
             return false;
         }
@@ -706,13 +1129,17 @@ fn can_derive_default(ty: &rust::Struct, rust_types: &RustTypes) -> bool {
         }
 
         match &rust_types[&field.type_] {
-            rust::Type::Provided(ty) => {
-                if ty.name == "CachedTags" {
-                    return true;
-                }
+            rust::Type::Provided(ty) if ty.name == "CachedTags" => {
+                return true;
             }
             rust::Type::List(_) => return true,
             rust::Type::Map(_) => return true,
+            rust::Type::Alias(alias_ty) => {
+                // Type aliases to primitive types that have Default
+                if matches!(alias_ty.type_.as_str(), "String" | "bool" | "i32" | "i64" | "f32" | "f64") {
+                    return true;
+                }
+            }
             _ => {}
         }
 
@@ -884,21 +1311,16 @@ fn codegen_dto_ext(rust_types: &RustTypes) {
             let Some(field_ty) = rust_types.get(&field.type_) else { continue };
 
             match field_ty {
-                rust::Type::Alias(field_ty) => {
-                    if field.option_type && field_ty.type_ == "String" {
-                        g!("if self.{}.as_deref() == Some(\"\") {{", field.name);
-                        g!("    self.{} = None;", field.name);
-                        g!("}}");
-                    }
+                rust::Type::Alias(field_ty) if field.option_type && field_ty.type_ == "String" => {
+                    g!("if self.{}.as_deref() == Some(\"\") {{", field.name);
+                    g!("    self.{} = None;", field.name);
+                    g!("}}");
                 }
-                rust::Type::StrEnum(_) => {
-                    if field.option_type {
-                        g!("if let Some(ref val) = self.{} {{", field.name);
-                        g!("    if val.as_str() == \"\" {{");
-                        g!("        self.{} = None;", field.name);
-                        g!("    }}");
-                        g!("}}");
-                    }
+                rust::Type::StrEnum(_) if field.option_type => {
+                    g!("if let Some(ref val) = self.{}", field.name);
+                    g!("    && val.as_str() == \"\" {{");
+                    g!("    self.{} = None;", field.name);
+                    g!("}}");
                 }
                 rust::Type::Struct(field_ty) => {
                     if field_ty.fields.is_empty() {

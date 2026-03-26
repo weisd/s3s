@@ -96,6 +96,13 @@ impl<W: Write> Serializer<W> {
         self.element(name, |s| val.serialize_content(s))
     }
 
+    pub fn write_raw_text(&mut self, raw: &str) -> SerResult {
+        self.inner
+            .get_mut()
+            .write_all(raw.as_bytes())
+            .map_err(|e| SerError { inner: e })
+    }
+
     pub fn content_with_ns<T: SerializeContent + ?Sized>(&mut self, name: &str, xmlns: &str, val: &T) -> SerResult {
         self.element_with_ns(name, xmlns, |s| val.serialize_content(s))
     }

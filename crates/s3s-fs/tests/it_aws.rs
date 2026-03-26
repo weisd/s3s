@@ -1,4 +1,5 @@
 use s3s::auth::SimpleAuth;
+use s3s::header::CONTENT_TYPE;
 use s3s::host::SingleDomain;
 use s3s::service::S3ServiceBuilder;
 use s3s::validation::NameValidation;
@@ -20,7 +21,10 @@ use aws_sdk_s3::types::CompletedMultipartUpload;
 use aws_sdk_s3::types::CompletedPart;
 use aws_sdk_s3::types::CreateBucketConfiguration;
 
+use aws_sdk_s3::error::ProvideErrorMetadata;
+
 use anyhow::Result;
+use hyper::Method;
 use tokio::sync::Mutex;
 use tokio::sync::MutexGuard;
 use tracing::{debug, error};
@@ -29,6 +33,28 @@ use uuid::Uuid;
 const FS_ROOT: &str = concat!(env!("CARGO_TARGET_TMPDIR"), "/s3s-fs-tests-aws");
 const DOMAIN_NAME: &str = "localhost:8014";
 const REGION: &str = "us-west-2";
+
+// STS AssumeRole route that returns NotImplemented
+struct AssumeRoleRoute;
+
+#[async_trait::async_trait]
+impl s3s::route::S3Route for AssumeRoleRoute {
+    fn is_match(&self, method: &Method, uri: &hyper::Uri, headers: &hyper::HeaderMap, _: &mut hyper::http::Extensions) -> bool {
+        if method == Method::POST
+            && uri.path() == "/"
+            && let Some(val) = headers.get(CONTENT_TYPE)
+            && val.as_bytes() == b"application/x-www-form-urlencoded"
+        {
+            return true;
+        }
+        false
+    }
+
+    async fn call(&self, _req: s3s::S3Request<s3s::Body>) -> s3s::S3Result<s3s::S3Response<s3s::Body>> {
+        debug!("AssumeRole called - returning NotImplemented");
+        Err(s3s::s3_error!(NotImplemented, "STS operations are not supported by s3s-fs"))
+    }
+}
 
 fn setup_tracing() {
     use tracing_subscriber::EnvFilter;
@@ -62,6 +88,7 @@ fn config() -> &'static SdkConfig {
             let mut b = S3ServiceBuilder::new(fs);
             b.set_auth(SimpleAuth::from_single(cred.access_key_id(), cred.secret_access_key()));
             b.set_host(SingleDomain::new(DOMAIN_NAME).unwrap());
+            b.set_route(AssumeRoleRoute);
             b.build()
         };
 
@@ -764,6 +791,613 @@ async fn test_default_bucket_validation() -> Result<()> {
         let error_str = format!("{:?}", result.unwrap_err());
         debug!("Default validation rejected bucket name {bucket_name}: {error_str}");
     }
+
+    Ok(())
+}
+
+/// Test that demonstrates the Content-Encoding preservation issue
+/// Related: <https://github.com/rustfs/rustfs/issues/1062>
+#[tokio::test]
+#[tracing::instrument]
+async fn test_content_encoding_preservation() -> Result<()> {
+    let _guard = serial().await;
+
+    let c = Client::new(config());
+    let bucket = format!("test-content-encoding-{}", Uuid::new_v4());
+    let bucket = bucket.as_str();
+    let key = "compressed.json";
+
+    // Simulated Brotli-compressed JSON content
+    let content = b"compressed data here";
+
+    create_bucket(&c, bucket).await?;
+
+    // Upload object with Content-Encoding header
+    {
+        let body = ByteStream::from_static(content);
+        c.put_object()
+            .bucket(bucket)
+            .key(key)
+            .body(body)
+            .content_encoding("br") // Brotli compression
+            .content_type("application/json")
+            .content_disposition("attachment; filename=\"data.json\"")
+            .cache_control("max-age=3600")
+            .send()
+            .await?;
+
+        debug!("Uploaded object with Content-Encoding: br");
+    }
+
+    // Retrieve object and verify headers are preserved
+    {
+        let ans = c.get_object().bucket(bucket).key(key).send().await?;
+
+        // Verify that standard object attributes are now preserved by s3s-fs
+        debug!("Retrieved object:");
+        debug!("  Content-Encoding: {:?}", ans.content_encoding());
+        debug!("  Content-Type: {:?}", ans.content_type());
+        debug!("  Content-Disposition: {:?}", ans.content_disposition());
+        debug!("  Cache-Control: {:?}", ans.cache_control());
+
+        // All standard attributes should be preserved
+        assert_eq!(ans.content_encoding(), Some("br"));
+        assert_eq!(ans.content_type(), Some("application/json"));
+        assert_eq!(ans.content_disposition(), Some("attachment; filename=\"data.json\""));
+        assert_eq!(ans.cache_control(), Some("max-age=3600"));
+    }
+
+    // Also test HeadObject
+    {
+        let ans = c.head_object().bucket(bucket).key(key).send().await?;
+
+        debug!("HeadObject result:");
+        debug!("  Content-Encoding: {:?}", ans.content_encoding());
+        debug!("  Content-Type: {:?}", ans.content_type());
+
+        // Verify HeadObject also returns the stored attributes
+        assert_eq!(ans.content_encoding(), Some("br"));
+        assert_eq!(ans.content_type(), Some("application/json"));
+    }
+
+    {
+        delete_object(&c, bucket, key).await?;
+        delete_bucket(&c, bucket).await?;
+    }
+
+    Ok(())
+}
+
+/// Test that standard object attributes are preserved through multipart uploads
+#[tokio::test]
+#[tracing::instrument]
+async fn test_multipart_with_attributes() -> Result<()> {
+    let _guard = serial().await;
+
+    let c = Client::new(config());
+    let bucket = format!("test-multipart-attrs-{}", Uuid::new_v4());
+    let bucket = bucket.as_str();
+    let key = "multipart-with-attrs.json";
+
+    create_bucket(&c, bucket).await?;
+
+    // Create multipart upload with standard attributes
+    let upload_id = {
+        let ans = c
+            .create_multipart_upload()
+            .bucket(bucket)
+            .key(key)
+            .content_encoding("gzip")
+            .content_type("application/json")
+            .content_disposition("attachment; filename=\"data.json\"")
+            .cache_control("public, max-age=7200")
+            .send()
+            .await?;
+        ans.upload_id.unwrap()
+    };
+    let upload_id = upload_id.as_str();
+
+    // Upload a part
+    let content = b"part1 content";
+    let upload_parts = {
+        let body = ByteStream::from_static(content);
+        let part_number = 1;
+
+        let ans = c
+            .upload_part()
+            .bucket(bucket)
+            .key(key)
+            .upload_id(upload_id)
+            .body(body)
+            .part_number(part_number)
+            .send()
+            .await?;
+
+        let part = CompletedPart::builder()
+            .e_tag(ans.e_tag.unwrap_or_default())
+            .part_number(part_number)
+            .build();
+
+        vec![part]
+    };
+
+    // Complete the multipart upload
+    {
+        let upload = CompletedMultipartUpload::builder().set_parts(Some(upload_parts)).build();
+
+        c.complete_multipart_upload()
+            .bucket(bucket)
+            .key(key)
+            .multipart_upload(upload)
+            .upload_id(upload_id)
+            .send()
+            .await?;
+    }
+
+    // Verify attributes were preserved after completing multipart upload
+    {
+        let ans = c.get_object().bucket(bucket).key(key).send().await?;
+
+        debug!("Retrieved multipart object:");
+        debug!("  Content-Encoding: {:?}", ans.content_encoding());
+        debug!("  Content-Type: {:?}", ans.content_type());
+        debug!("  Content-Disposition: {:?}", ans.content_disposition());
+        debug!("  Cache-Control: {:?}", ans.cache_control());
+
+        // Verify all attributes are preserved through multipart upload
+        assert_eq!(ans.content_encoding(), Some("gzip"));
+        assert_eq!(ans.content_type(), Some("application/json"));
+        assert_eq!(ans.content_disposition(), Some("attachment; filename=\"data.json\""));
+        assert_eq!(ans.cache_control(), Some("public, max-age=7200"));
+    }
+
+    // Also verify with HeadObject
+    {
+        let ans = c.head_object().bucket(bucket).key(key).send().await?;
+
+        assert_eq!(ans.content_encoding(), Some("gzip"));
+        assert_eq!(ans.content_type(), Some("application/json"));
+    }
+
+    {
+        delete_object(&c, bucket, key).await?;
+        delete_bucket(&c, bucket).await?;
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+#[tracing::instrument]
+async fn test_sts_assume_role_not_implemented() -> Result<()> {
+    let _guard = serial().await;
+
+    // Create STS client using the same config as S3
+    let sdk_config = config();
+    let sts_client = aws_sdk_sts::Client::new(sdk_config);
+
+    // Attempt to call AssumeRole - should fail with NotImplemented
+    let result = sts_client
+        .assume_role()
+        .role_arn("arn:aws:iam::123456789012:role/test-role")
+        .role_session_name("test-session")
+        .send()
+        .await;
+
+    // Verify the operation returned an error
+    assert!(result.is_err(), "Expected AssumeRole to fail with NotImplemented error");
+
+    // Check that the error is NotImplemented
+    let error = result.unwrap_err();
+    let error_str = format!("{error:?}");
+    debug!("AssumeRole error (expected): {error_str}");
+
+    // The error should contain "NotImplemented" or similar indication
+    assert!(
+        error_str.contains("NotImplemented") || error_str.contains("not implemented"),
+        "Expected NotImplemented error, got: {error_str}"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+#[tracing::instrument]
+async fn test_if_none_match_wildcard() -> Result<()> {
+    let _guard = serial().await;
+
+    let c = Client::new(config());
+    let bucket = format!("if-none-match-{}", Uuid::new_v4());
+    let bucket = bucket.as_str();
+    let key = "test-file.txt";
+    let content1 = "initial content";
+    let content2 = "updated content";
+
+    create_bucket(&c, bucket).await?;
+
+    // Test 1: PUT with If-None-Match: * should succeed when object doesn't exist
+    debug!("Test 1: PUT with If-None-Match: * on non-existent object");
+    {
+        let body = ByteStream::from_static(content1.as_bytes());
+        let result = c
+            .put_object()
+            .bucket(bucket)
+            .key(key)
+            .body(body)
+            .if_none_match("*")
+            .send()
+            .await;
+
+        match result {
+            Ok(_) => debug!("✓ Successfully created object with If-None-Match: *"),
+            Err(e) => panic!("Expected PUT with If-None-Match: * to succeed when object doesn't exist, but got error: {e:?}"),
+        }
+    }
+
+    // Verify the object was created
+    {
+        let result = c.get_object().bucket(bucket).key(key).send().await?;
+        let body = result.body.collect().await?.into_bytes();
+        assert_eq!(body.as_ref(), content1.as_bytes());
+        debug!("✓ Verified object was created");
+    }
+
+    // Test 2: PUT with If-None-Match: * should fail when object exists
+    debug!("Test 2: PUT with If-None-Match: * on existing object");
+    {
+        let body = ByteStream::from_static(content2.as_bytes());
+        let result = c
+            .put_object()
+            .bucket(bucket)
+            .key(key)
+            .body(body)
+            .if_none_match("*")
+            .send()
+            .await;
+
+        match result {
+            Ok(_) => panic!("Expected PUT with If-None-Match: * to fail when object exists, but it succeeded"),
+            Err(e) => {
+                let error_str = format!("{e:?}");
+                debug!("✓ Expected error when object exists: {error_str}");
+                // The error should be a PreconditionFailed (412)
+                assert!(
+                    error_str.contains("PreconditionFailed") || error_str.contains("412"),
+                    "Expected PreconditionFailed error, got: {error_str}"
+                );
+            }
+        }
+    }
+
+    // Verify the object wasn't overwritten
+    {
+        let result = c.get_object().bucket(bucket).key(key).send().await?;
+        let body = result.body.collect().await?.into_bytes();
+        assert_eq!(body.as_ref(), content1.as_bytes());
+        debug!("✓ Verified object was not overwritten");
+    }
+
+    // Cleanup
+    delete_object(&c, bucket, key).await?;
+    delete_bucket(&c, bucket).await?;
+
+    Ok(())
+}
+
+/// Regression test for <https://github.com/s3s-project/s3s/issues/67>
+///
+/// `copy_object` should create parent directories when the destination key contains "/"
+#[tokio::test]
+#[tracing::instrument]
+async fn test_copy_object_nested_dst() -> Result<()> {
+    let _guard = serial().await;
+
+    let c = Client::new(config());
+    let bucket = format!("test-copy-nested-{}", Uuid::new_v4());
+    let bucket = bucket.as_str();
+
+    create_bucket(&c, bucket).await?;
+
+    // Put a file at the root level
+    let src_key = "source.txt";
+    let content = "copy me into a nested directory";
+    c.put_object()
+        .bucket(bucket)
+        .key(src_key)
+        .body(ByteStream::from_static(content.as_bytes()))
+        .send()
+        .await?;
+
+    // Copy to a nested destination with multiple levels of "/"
+    let dst_key = "deep/nested/path/destination.txt";
+    let copy_source = format!("{bucket}/{src_key}");
+    c.copy_object()
+        .bucket(bucket)
+        .key(dst_key)
+        .copy_source(copy_source)
+        .send()
+        .await?;
+
+    // Verify the copied file exists and has the correct content
+    let ans = c.get_object().bucket(bucket).key(dst_key).send().await?;
+    let body = ans.body.collect().await?.into_bytes();
+    assert_eq!(body.as_ref(), content.as_bytes());
+
+    // Cleanup
+    delete_object(&c, bucket, src_key).await?;
+    delete_object(&c, bucket, dst_key).await?;
+    delete_bucket(&c, bucket).await?;
+
+    Ok(())
+}
+
+/// Regression test for <https://github.com/s3s-project/s3s/issues/112>
+///
+/// `list_objects_v2` prefix matching should use string-based matching (not `Path::starts_with`)
+/// and `start_after` should work correctly
+#[tokio::test]
+#[tracing::instrument]
+async fn test_list_objects_v2_start_after() -> Result<()> {
+    let _guard = serial().await;
+
+    let c = Client::new(config());
+    let bucket = format!("test-start-after-{}", Uuid::new_v4());
+    let bucket = bucket.as_str();
+    create_bucket(&c, bucket).await?;
+
+    let content = "test content";
+    let keys = ["aaa.txt", "bbb.txt", "ccc.txt", "ddd.txt"];
+    for key in &keys {
+        c.put_object()
+            .bucket(bucket)
+            .key(*key)
+            .body(ByteStream::from_static(content.as_bytes()))
+            .send()
+            .await?;
+    }
+
+    // start_after="bbb.txt" should return only ccc.txt and ddd.txt
+    let result = c.list_objects_v2().bucket(bucket).start_after("bbb.txt").send().await?;
+
+    let contents: Vec<_> = result.contents().iter().filter_map(|obj| obj.key()).collect();
+    assert_eq!(contents, vec!["ccc.txt", "ddd.txt"]);
+
+    // Cleanup
+    for key in &keys {
+        delete_object(&c, bucket, key).await?;
+    }
+    delete_bucket(&c, bucket).await?;
+
+    Ok(())
+}
+
+/// Regression test for <https://github.com/s3s-project/s3s/issues/112>
+///
+/// Prefix matching must use string comparison, not `Path::starts_with` which is stricter.
+/// For example, prefix "dir/sub" should match key "dir/subdir/file.txt".
+#[tokio::test]
+#[tracing::instrument]
+async fn test_list_objects_v2_prefix_string_matching() -> Result<()> {
+    let _guard = serial().await;
+
+    let c = Client::new(config());
+    let bucket = format!("test-prefix-match-{}", Uuid::new_v4());
+    let bucket = bucket.as_str();
+    create_bucket(&c, bucket).await?;
+
+    let content = "test";
+    let keys = ["dir/subdir/file1.txt", "dir/subother/file2.txt", "dir/other/file3.txt"];
+    for key in &keys {
+        c.put_object()
+            .bucket(bucket)
+            .key(*key)
+            .body(ByteStream::from_static(content.as_bytes()))
+            .send()
+            .await?;
+    }
+
+    // Prefix "dir/sub" should match "dir/subdir/..." and "dir/subother/..."
+    // but NOT "dir/other/..."
+    // Path::starts_with would fail here because it requires component boundaries
+    let result = c.list_objects_v2().bucket(bucket).prefix("dir/sub").send().await?;
+
+    let contents: Vec<_> = result.contents().iter().filter_map(|obj| obj.key()).collect();
+    assert_eq!(contents.len(), 2, "Expected 2 objects matching prefix 'dir/sub', got {contents:?}");
+    assert!(contents.contains(&"dir/subdir/file1.txt"));
+    assert!(contents.contains(&"dir/subother/file2.txt"));
+
+    // Cleanup
+    for key in &keys {
+        delete_object(&c, bucket, key).await?;
+    }
+    delete_bucket(&c, bucket).await?;
+
+    Ok(())
+}
+
+/// Regression test for <https://github.com/s3s-project/s3s/issues/116>
+///
+/// `put_object` should write atomically via a temp file to prevent incomplete writes.
+/// Verify that the file is fully written and readable after `put_object` completes.
+#[tokio::test]
+#[tracing::instrument]
+async fn test_put_object_atomic_write() -> Result<()> {
+    let _guard = serial().await;
+
+    let c = Client::new(config());
+    let bucket = format!("test-atomic-write-{}", Uuid::new_v4());
+    let bucket = bucket.as_str();
+    create_bucket(&c, bucket).await?;
+
+    // Write a reasonably sized object
+    let content = "x".repeat(1024 * 64); // 64 KB
+    let key = "atomic-test.bin";
+
+    c.put_object()
+        .bucket(bucket)
+        .key(key)
+        .body(ByteStream::from(content.clone().into_bytes()))
+        .send()
+        .await?;
+
+    // Read it back immediately and verify full content
+    let ans = c.get_object().bucket(bucket).key(key).send().await?;
+    let body = ans.body.collect().await?.into_bytes();
+    assert_eq!(body.len(), content.len(), "Content length mismatch");
+    assert_eq!(body.as_ref(), content.as_bytes(), "Content mismatch");
+
+    // Verify no temp files remain in the FS root
+    let entries: Vec<_> = fs::read_dir(FS_ROOT)?
+        .filter_map(Result::ok)
+        .filter(|e| {
+            let name = e.file_name();
+            let name = name.to_str().unwrap_or("");
+            name.starts_with(".tmp.") && name.ends_with(".internal.part")
+        })
+        .collect();
+    assert!(entries.is_empty(), "Leftover temp files found: {entries:?}");
+
+    // Cleanup
+    delete_object(&c, bucket, key).await?;
+    delete_bucket(&c, bucket).await?;
+
+    Ok(())
+}
+
+/// Regression test for <https://github.com/s3s-project/s3s/issues/51>
+///
+/// Multipart `upload_id` should be bound to the credentials that created it.
+/// A different user should not be able to upload parts or complete the upload.
+#[tokio::test]
+#[tracing::instrument]
+#[allow(clippy::too_many_lines)]
+async fn test_multipart_upload_id_auth() -> Result<()> {
+    let _guard = serial().await;
+
+    // Create a service with two sets of credentials
+    let cred_user1 = Credentials::new("AKUSER1EXAMPLE", "secretkey1example", None, None, "user1");
+    let cred_user2 = Credentials::new("AKUSER2EXAMPLE", "secretkey2example", None, None, "user2");
+
+    let mut auth = SimpleAuth::new();
+    auth.register(cred_user1.access_key_id().to_string(), cred_user1.secret_access_key().into());
+    auth.register(cred_user2.access_key_id().to_string(), cred_user2.secret_access_key().into());
+
+    fs::create_dir_all(FS_ROOT).unwrap();
+    let fs = FileSystem::new(FS_ROOT).unwrap();
+    let service = {
+        let mut b = S3ServiceBuilder::new(fs);
+        b.set_auth(auth);
+        b.set_host(SingleDomain::new(DOMAIN_NAME).unwrap());
+        b.build()
+    };
+
+    // Create client for user1
+    let config_user1 = SdkConfig::builder()
+        .credentials_provider(SharedCredentialsProvider::new(cred_user1.clone()))
+        .http_client(s3s_aws::Client::from(service.clone()))
+        .region(Region::new(REGION))
+        .endpoint_url(format!("http://{DOMAIN_NAME}"))
+        .build();
+    let c1 = Client::new(&config_user1);
+
+    // Create client for user2
+    let config_user2 = SdkConfig::builder()
+        .credentials_provider(SharedCredentialsProvider::new(cred_user2))
+        .http_client(s3s_aws::Client::from(service))
+        .region(Region::new(REGION))
+        .endpoint_url(format!("http://{DOMAIN_NAME}"))
+        .build();
+    let c2 = Client::new(&config_user2);
+
+    let bucket = format!("test-multipart-auth-{}", Uuid::new_v4());
+    let bucket = bucket.as_str();
+    let key = "auth-test.txt";
+
+    // User1 creates bucket and starts multipart upload
+    create_bucket(&c1, bucket).await?;
+
+    let upload_id = {
+        let ans = c1.create_multipart_upload().bucket(bucket).key(key).send().await?;
+        ans.upload_id.unwrap()
+    };
+    let upload_id = upload_id.as_str();
+
+    // User2 tries to upload a part - should fail with AccessDenied
+    let result = c2
+        .upload_part()
+        .bucket(bucket)
+        .key(key)
+        .upload_id(upload_id)
+        .body(ByteStream::from_static(b"unauthorized part"))
+        .part_number(1)
+        .send()
+        .await;
+
+    let err = result.expect_err("Expected AccessDenied when user2 tries to upload part");
+    let service_err = err.into_service_error();
+    assert_eq!(
+        service_err.code(),
+        Some("AccessDenied"),
+        "Expected AccessDenied error code, got: {:?}",
+        service_err.code()
+    );
+
+    // User1 should be able to upload a part
+    let upload_parts = {
+        let body = ByteStream::from_static(b"authorized part");
+        let ans = c1
+            .upload_part()
+            .bucket(bucket)
+            .key(key)
+            .upload_id(upload_id)
+            .body(body)
+            .part_number(1)
+            .send()
+            .await?;
+
+        vec![
+            CompletedPart::builder()
+                .e_tag(ans.e_tag.unwrap_or_default())
+                .part_number(1)
+                .build(),
+        ]
+    };
+
+    // User2 tries to complete the upload - should fail with AccessDenied
+    let upload = CompletedMultipartUpload::builder()
+        .set_parts(Some(upload_parts.clone()))
+        .build();
+    let result = c2
+        .complete_multipart_upload()
+        .bucket(bucket)
+        .key(key)
+        .multipart_upload(upload)
+        .upload_id(upload_id)
+        .send()
+        .await;
+
+    let err = result.expect_err("Expected AccessDenied when user2 tries to complete upload");
+    let service_err = err.into_service_error();
+    assert_eq!(
+        service_err.code(),
+        Some("AccessDenied"),
+        "Expected AccessDenied error code, got: {:?}",
+        service_err.code()
+    );
+
+    // User1 completes the upload
+    let upload = CompletedMultipartUpload::builder().set_parts(Some(upload_parts)).build();
+    c1.complete_multipart_upload()
+        .bucket(bucket)
+        .key(key)
+        .multipart_upload(upload)
+        .upload_id(upload_id)
+        .send()
+        .await?;
+
+    // Cleanup
+    delete_object(&c1, bucket, key).await?;
+    delete_bucket(&c1, bucket).await?;
 
     Ok(())
 }

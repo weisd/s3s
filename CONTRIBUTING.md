@@ -4,7 +4,7 @@
 
 |               Toolchain               | Version |
 | :-----------------------------------: | :-----: |
-|      [Rust](https://rustup.rs/)       | ^1.86.0 |
+|      [Rust](https://rustup.rs/)       | ^1.88.0 |
 | [just](https://github.com/casey/just) |    ^1.36.0    |
 |                [uv](https://github.com/astral-sh/uv)                 |  ^0.5.0  |
 |                Docker                 |    -    |
@@ -32,6 +32,16 @@ just codegen
 ```
 
 It should change nothing if you are running the latest code.
+
+### Run semver checks
+
+Check for API breaking changes:
+
+```bash
+just semver-checks
+```
+
+Note: This requires published crate versions on crates.io to compare against.
 
 ### Open documentation
 
@@ -93,6 +103,25 @@ Open a new terminal, then run the test suite
 ```bash
 ./scripts/mint.sh | tee target/mint.log
 ```
+
+### Run Ceph s3-tests (E2E)
+
+Install `s3s-proxy`
+
+```bash
+just install s3s-proxy
+```
+
+Run a minimal Ceph `s3-tests` run against `s3s-proxy` (backed by MinIO):
+
+```bash
+./scripts/e2e-s3tests.sh
+```
+
+This script has additional prerequisites:
+
+- Docker must be installed and a local Docker daemon running (used to start MinIO).
+- Network access is required on first run so the script can clone the `ceph/s3-tests` repository.
 
 ## Git
 

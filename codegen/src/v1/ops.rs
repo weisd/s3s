@@ -1,10 +1,12 @@
 use super::dto::RustTypes;
 use super::rust::default_value_literal;
+use super::smithy::SmithyTraitsExt;
 use super::xml::{is_xml_output, is_xml_payload};
 use super::{dto, rust, smithy};
 use super::{headers, o};
 
 use crate::declare_codegen;
+use crate::v1::Patch;
 
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -16,7 +18,7 @@ use heck::ToSnakeCase;
 use scoped_writer::g;
 use stdx::default::default;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Operation {
     pub name: String,
 
@@ -33,16 +35,19 @@ pub struct Operation {
     pub http_method: String,
     pub http_uri: String,
     pub http_code: u16,
+
+    pub is_minio_extension: bool,
 }
 
 pub type Operations = BTreeMap<String, Operation>;
 
-// TODO: handle these operations
-pub const SKIPPED_OPS: &[&str] = &["CreateSession", "ListDirectoryBuckets"];
+pub const SKIPPED_OPS: &[&str] = &[];
 
 pub fn collect_operations(model: &smithy::Model) -> Operations {
     let mut operations: Operations = default();
-    let mut insert = |name, op| assert!(operations.insert(name, op).is_none());
+    let insert = |operations: &mut Operations, name: String, op: Operation| {
+        assert!(operations.insert(name, op).is_none());
+    };
 
     for (shape_name, shape) in &model.shapes {
         let smithy::Shape::Operation(sh) = shape else { continue };
@@ -110,11 +115,78 @@ pub fn collect_operations(model: &smithy::Model) -> Operations {
             http_method: sh.traits.http_method().unwrap().to_owned(),
             http_uri: sh.traits.http_uri().unwrap().to_owned(),
             http_code,
+            is_minio_extension: sh.traits.minio(),
         };
-        insert(op_name, op);
+        insert(&mut operations, op_name, op);
+    }
+
+    // PostObject is a synthetic operation (multipart form upload) which is not present in the
+    // upstream Smithy model. We add it here so downstream generators (trait/access/etc.) can treat
+    // it like a normal operation.
+    if operations.contains_key("PostObject").not() {
+        let op_name = o("PostObject");
+        let op = Operation {
+            name: op_name.clone(),
+
+            input: o("PostObjectInput"),
+            output: o("PostObjectOutput"),
+
+            // Placeholders (there is no Smithy-modeled input/output for PostObject).
+            smithy_input: o("Unit"),
+            smithy_output: o("Unit"),
+
+            s3_unwrapped_xml_output: false,
+            doc: None,
+
+            http_method: o("POST"),
+            http_uri: o("/{Bucket}"),
+            http_code: 200,
+            is_minio_extension: false,
+        };
+        insert(&mut operations, op_name, op);
     }
 
     operations
+}
+
+pub fn augment_operations(mut ops: Operations, patch: Option<Patch>) -> Operations {
+    if matches!(patch, Some(Patch::Minio)) && ops.contains_key("ListObjectVersionsM").not() {
+        let op_name = o("ListObjectVersionsM");
+        let op = Operation {
+            name: op_name.clone(),
+            input: o("ListObjectVersionsInput"),
+            output: o("ListObjectVersionsMOutput"),
+            smithy_input: o("ListObjectVersionsRequest"),
+            smithy_output: o("ListObjectVersionsMOutput"),
+            s3_unwrapped_xml_output: false,
+            doc: Some(o("MinIO compatibility extension for `GET /{bucket}?versions&metadata=true`.")),
+            http_method: o("GET"),
+            http_uri: o("/{Bucket}?versions&metadata=true"),
+            http_code: 200,
+            is_minio_extension: true,
+        };
+        assert!(ops.insert(op_name, op).is_none());
+    }
+
+    if matches!(patch, Some(Patch::Minio)) && ops.contains_key("ListObjectsV2M").not() {
+        let op_name = o("ListObjectsV2M");
+        let op = Operation {
+            name: op_name.clone(),
+            input: o("ListObjectsV2Input"),
+            output: o("ListObjectsV2MOutput"),
+            smithy_input: o("ListObjectsV2Request"),
+            smithy_output: o("ListObjectsV2MOutput"),
+            s3_unwrapped_xml_output: false,
+            doc: Some(o("MinIO compatibility extension for `GET /{bucket}?list-type=2&metadata=true`.")),
+            http_method: o("GET"),
+            http_uri: o("/{Bucket}?list-type=2&metadata=true"),
+            http_code: 200,
+            is_minio_extension: true,
+        };
+        assert!(ops.insert(op_name, op).is_none());
+    }
+
+    ops
 }
 
 pub fn is_op_input(name: &str, ops: &Operations) -> bool {
@@ -125,7 +197,7 @@ pub fn is_op_output(name: &str, ops: &Operations) -> bool {
     name.strip_suffix("Output").is_some_and(|x| ops.contains_key(x))
 }
 
-pub fn codegen(ops: &Operations, rust_types: &RustTypes) {
+pub fn codegen(ops: &Operations, rust_types: &RustTypes, patch: Option<Patch>) {
     declare_codegen!();
 
     for op in ops.values() {
@@ -138,6 +210,7 @@ pub fn codegen(ops: &Operations, rust_types: &RustTypes) {
         "#![allow(clippy::borrow_interior_mutable_const)]",
         "#![allow(clippy::needless_pass_by_value)]",
         "#![allow(clippy::too_many_lines)]",
+        "#![allow(clippy::collapsible_if)]",
         "#![allow(clippy::unnecessary_wraps)]",
         "",
         "use crate::dto::*;",
@@ -151,7 +224,7 @@ pub fn codegen(ops: &Operations, rust_types: &RustTypes) {
         "",
     ]);
 
-    codegen_http(ops, rust_types);
+    codegen_http(ops, rust_types, patch);
     codegen_router(ops, rust_types);
 }
 
@@ -163,16 +236,25 @@ fn status_code_name(code: u16) -> &'static str {
     }
 }
 
-fn codegen_http(ops: &Operations, rust_types: &RustTypes) {
+fn codegen_http(ops: &Operations, rust_types: &RustTypes, patch: Option<Patch>) {
     codegen_header_value(ops, rust_types);
 
     for op in ops.values() {
+        if op.name == "PostObject" {
+            continue;
+        }
+        if matches!(op.name.as_str(), "ListObjectVersionsM" | "ListObjectsV2M") {
+            codegen_metadata_extension_op(op);
+            codegen_op_http_call(op);
+            g!();
+            continue;
+        }
         g!("pub struct {};", op.name);
         g!();
 
         g!("impl {} {{", op.name);
 
-        codegen_op_http_de(op, rust_types);
+        codegen_op_http_de(op, rust_types, patch);
         codegen_op_http_ser(op, rust_types);
 
         g!("}}");
@@ -181,6 +263,192 @@ fn codegen_http(ops: &Operations, rust_types: &RustTypes) {
         codegen_op_http_call(op);
         g!();
     }
+
+    codegen_post_object_fork_op(rust_types);
+}
+
+fn codegen_metadata_extension_op(op: &Operation) {
+    g!("pub struct {};", op.name);
+    g!();
+    g!("impl {} {{", op.name);
+    g([
+        "    pub fn deserialize_http(req: &mut http::Request) -> S3Result<",
+        op.input.as_str(),
+        "> {",
+        "        ",
+        if op.name == "ListObjectVersionsM" {
+            "ListObjectVersions::deserialize_http(req)"
+        } else {
+            "ListObjectsV2::deserialize_http(req)"
+        },
+        "    }",
+        "",
+        "    pub fn serialize_http(x: ",
+        op.output.as_str(),
+        ") -> S3Result<http::Response> {",
+        "        let mut res = http::Response::with_status(http::StatusCode::OK);",
+        "        http::set_xml_body(&mut res, &x)?;",
+        "        http::add_opt_header(&mut res, X_AMZ_REQUEST_CHARGED, x.request_charged)?;",
+        "        Ok(res)",
+        "    }",
+    ]);
+    g!("}}");
+    g!();
+}
+
+#[allow(clippy::too_many_lines)]
+fn codegen_post_object_fork_op(rust_types: &RustTypes) {
+    // PostObject is a synthetic operation: same behavior as PutObject (multipart form upload),
+    // but separated at the trait layer so implementations can distinguish PUT vs POST later.
+    // PostObjectInput has extra fields for POST-specific behavior (success_action_redirect, success_action_status).
+    let Some(rust::Type::Struct(put_in)) = rust_types.get("PutObjectInput") else { return };
+    let Some(rust::Type::Struct(_put_out)) = rust_types.get("PutObjectOutput") else { return };
+    let Some(rust::Type::Struct(post_in)) = rust_types.get("PostObjectInput") else { return };
+    let Some(rust::Type::Struct(_post_out)) = rust_types.get("PostObjectOutput") else { return };
+
+    // PostObjectInput has extra fields, so we only verify that common fields match.
+    assert!(post_in.fields.len() >= put_in.fields.len());
+    for (a, b) in put_in.fields.iter().zip(post_in.fields.iter()) {
+        assert_eq!(a.name, b.name);
+        assert_eq!(a.type_, b.type_);
+        assert_eq!(a.option_type, b.option_type);
+    }
+
+    g(["pub struct PostObject;", "", "impl PostObject {"]);
+    g([
+        "    pub fn deserialize_http(req: &mut http::Request) -> S3Result<PostObjectInput> {",
+        "        let Some(m) = req.s3ext.multipart.take() else {",
+        "            return Err(invalid_request!(\"missing multipart form\"));",
+        "        };",
+        "",
+        "        // Parse POST-specific fields before consuming the multipart form",
+        "        let success_action_redirect: Option<String> = match http::parse_field_value(&m, \"success_action_redirect\")? {",
+        "            Some(v) => Some(v),",
+        "            None => http::parse_field_value(&m, \"redirect\")?,",
+        "        };",
+        "        let success_action_status: Option<i32> = http::parse_field_value(&m, \"success_action_status\")?;",
+        "",
+        "        // Get the validated POST policy from request extensions",
+        "        let policy = req.s3ext.post_policy.take();",
+        "",
+        "        let put_input = PutObject::deserialize_http_multipart(req, m)?;",
+        "        let mut post_input = put_object_input_into_post_object_input(put_input);",
+        "        post_input.success_action_redirect = success_action_redirect;",
+        "        post_input.success_action_status = success_action_status;",
+        "        post_input.policy = policy;",
+        "        Ok(post_input)",
+        "    }",
+        "",
+        "    pub fn serialize_http(",
+        "        bucket: &str,",
+        "        key: &str,",
+        "        success_action_redirect: Option<&str>,",
+        "        success_action_status: Option<i32>,",
+        "        output: &PostObjectOutput,",
+        "    ) -> S3Result<http::Response> {",
+        "        let etag_str = output.e_tag.as_ref().map(ETag::value).unwrap_or_default();",
+        "",
+        "        // Handle success_action_redirect: return 303 See Other with Location header",
+        "        if let Some(redirect_url) = success_action_redirect {",
+        "            // Defense-in-depth: Reject URLs with control characters that could enable header injection",
+        "            if redirect_url.chars().any(char::is_control) {",
+        "                return Err(s3_error!(InvalidArgument, \"success_action_redirect contains invalid control characters\"));",
+        "            }",
+        "",
+        "            // Parse the URL to validate and manipulate it properly",
+        "            let mut url = url::Url::parse(redirect_url).map_err(|e| s3_error!(e, InvalidArgument, \"Invalid redirect URL\"))?;",
+        "",
+        "            // Add query parameters (bucket, key, etag) to the URL",
+        "            url.query_pairs_mut()",
+        "                .append_pair(\"bucket\", bucket)",
+        "                .append_pair(\"key\", key)",
+        "                .append_pair(\"etag\", etag_str);",
+        "",
+        "            let mut res = http::Response::with_status(http::StatusCode::SEE_OTHER);",
+        "            res.headers.insert(",
+        "                hyper::header::LOCATION,",
+        "                url.as_str().parse().map_err(|e| s3_error!(e, InternalError))?",
+        "            );",
+        "            return Ok(res);",
+        "        }",
+        "",
+        "        // Handle success_action_status",
+        "        match success_action_status {",
+        "            Some(200) => {",
+        "                // 200 OK with empty body",
+        "                Ok(http::Response::with_status(http::StatusCode::OK))",
+        "            }",
+        "            Some(201) => {",
+        "                // 201 Created with XML body using PostResponse DTO",
+        "                let location = format!(\"/{bucket}/{key}\");",
+        "                let post_response = super::super::dto::PostResponse {",
+        "                    location: &location,",
+        "                    bucket,",
+        "                    key,",
+        "                    etag: etag_str,",
+        "                };",
+        "                let mut res = http::Response::with_status(http::StatusCode::CREATED);",
+        "                http::set_xml_body(&mut res, &post_response)?;",
+        "                Ok(res)",
+        "            }",
+        "            _ => {",
+        "                // 204 No Content (default, also for unrecognized values)",
+        "                Ok(http::Response::with_status(http::StatusCode::NO_CONTENT))",
+        "            }",
+        "        }",
+        "    }",
+        "}",
+        "",
+    ]);
+
+    g(["#[async_trait::async_trait]", "impl super::Operation for PostObject {"]);
+    g(["    fn name(&self) -> &'static str {", "        \"PostObject\"", "    }", ""]);
+
+    g([
+        "    async fn call(&self, ccx: &CallContext<'_>, req: &mut http::Request) -> S3Result<http::Response> {",
+        "        let post_input = Self::deserialize_http(req)?;",
+        "        // Save POST-specific fields before conversion",
+        "        let success_action_redirect = post_input.success_action_redirect.clone();",
+        "        let success_action_status = post_input.success_action_status;",
+        "        let bucket = post_input.bucket.clone();",
+        "        let key = post_input.key.clone();",
+        "",
+        "        let put_input = post_object_input_into_put_object_input(post_input);",
+        "        let mut put_req = super::build_s3_request(put_input, req);",
+        "        let s3 = ccx.s3;",
+        "        if let Some(access) = ccx.access {",
+        "            // Keep backward-compatible behavior: POST object used to be gated by put_object access check.",
+        "            access.put_object(&mut put_req).await?;",
+        "        }",
+        "        let mut post_req = put_req.map_input(put_object_input_into_post_object_input);",
+        "        // Restore POST-specific fields that were lost during conversion",
+        "        post_req.input.success_action_redirect.clone_from(&success_action_redirect);",
+        "        post_req.input.success_action_status = success_action_status;",
+        "        if let Some(access) = ccx.access {",
+        "            // New hook for POST object (optional).",
+        "            access.post_object(&mut post_req).await?;",
+        "        }",
+        "        let result = s3.post_object(post_req).await;",
+        "        let s3_resp = match result {",
+        "            Ok(val) => val,",
+        "            Err(err) => return super::serialize_error(err, false),",
+        "        };",
+        "        // Serialize with POST-specific response behavior",
+        "        let mut resp = Self::serialize_http(",
+        "            &bucket,",
+        "            &key,",
+        "            success_action_redirect.as_deref(),",
+        "            success_action_status,",
+        "            &s3_resp.output,",
+        "        )?;",
+        "        resp.headers.extend(s3_resp.headers);",
+        "        resp.extensions.extend(s3_resp.extensions);",
+        "        Ok(resp)",
+        "    }",
+        "}",
+    ]);
+
+    g!();
 }
 
 fn codegen_header_value(ops: &Operations, rust_types: &RustTypes) {
@@ -188,7 +456,7 @@ fn codegen_header_value(ops: &Operations, rust_types: &RustTypes) {
 
     for op in ops.values() {
         for ty_name in [op.input.as_str(), op.output.as_str()] {
-            let rust_type = &rust_types[ty_name];
+            let Some(rust_type) = rust_types.get(ty_name) else { continue };
             match rust_type {
                 rust::Type::Provided(_) => {}
                 rust::Type::Struct(ty) => {
@@ -376,7 +644,7 @@ fn codegen_op_http_ser(op: &Operation, rust_types: &RustTypes) {
 }
 
 #[allow(clippy::too_many_lines)]
-fn codegen_op_http_de(op: &Operation, rust_types: &RustTypes) {
+fn codegen_op_http_de(op: &Operation, rust_types: &RustTypes, patch: Option<Patch>) {
     let input = op.input.as_str();
     let rust_type = &rust_types[input];
     match rust_type {
@@ -498,10 +766,77 @@ fn codegen_op_http_de(op: &Operation, rust_types: &RustTypes) {
                                 g!("let {}: Option<{}> = Some(http::take_stream_body(req));", field.name, field.type_);
                             }
                             _ => {
-                                if field.option_type {
-                                    g!("let {}: Option<{}> = http::take_opt_xml_body(req)?;", field.name, field.type_);
+                                // AWS S3 returns MalformedXML for empty bodies on these operations,
+                                // which differs from the default behavior where empty optional XML bodies are accepted.
+                                // - CompleteMultipartUpload: requires XML body with list of uploaded parts
+                                // - PutObjectLegalHold: requires XML body with ON/OFF legal hold status
+                                // - PutObjectRetention: requires XML body with retention mode and date
+                                let requires_body = matches!(
+                                    (op.name.as_str(), field.name.as_str()),
+                                    ("CompleteMultipartUpload", "multipart_upload")
+                                        | ("PutObjectLegalHold", "legal_hold")
+                                        | ("PutObjectRetention", "retention")
+                                );
+
+                                if requires_body {
+                                    // These operations require XML body to match AWS S3 behavior; empty body should return MalformedXML instead of being treated as optional
+                                    assert!(field.option_type);
+                                    g!("let {}: Option<{}> = match http::take_xml_body(req) {{", field.name, field.type_);
+                                    g!("    Ok(body) => Some(body),");
+                                    g!("    Err(e) if *e.code() == crate::S3ErrorCode::MissingRequestBodyError => {{");
+                                    g!("        return Err(crate::S3ErrorCode::MalformedXML.into());");
+                                    g!("    }}");
+                                    g!("    Err(e) => return Err(e),");
+                                    g!("}};");
+                                } else if field.option_type {
+                                    // MinIO compatibility: accept a trimmed bare
+                                    // `Enabled` body as an object-lock shorthand.
+                                    //
+                                    // Current MinIO source does not expose the same
+                                    // raw-body parser on the S3 HTTP path; this
+                                    // helper is derived from the ObjectLock config
+                                    // shape and its required Enabled state:
+                                    // - https://github.com/minio/minio/blob/7aac2a2c5b7c882e68c1ce017d8256be2feea27f/internal/bucket/object/lock/lock.go#L232-L319
+                                    if op.name == "PutObjectLockConfiguration"
+                                        && field.name == "object_lock_configuration"
+                                        && matches!(patch, Some(Patch::Minio))
+                                    {
+                                        g!("// MinIO reference:");
+                                        g!(
+                                            "// - https://github.com/minio/minio/blob/7aac2a2c5b7c882e68c1ce017d8256be2feea27f/internal/bucket/object/lock/lock.go#L232-L319"
+                                        );
+                                        g!(
+                                            "let {}: Option<{}> = http::take_opt_object_lock_configuration(req)?;",
+                                            field.name,
+                                            field.type_
+                                        );
+                                    } else {
+                                        g!("let {}: Option<{}> = http::take_opt_xml_body(req)?;", field.name, field.type_);
+                                    }
                                 } else {
-                                    g!("let {}: {} = http::take_xml_body(req)?;", field.name, field.type_);
+                                    // MinIO compatibility: accept a trimmed bare
+                                    // `Enabled` body as a versioning shorthand.
+                                    //
+                                    // Current MinIO source models versioning
+                                    // enablement via VersioningConfiguration and
+                                    // the `Enabled` status value:
+                                    // - https://github.com/minio/minio/blob/7aac2a2c5b7c882e68c1ce017d8256be2feea27f/internal/bucket/versioning/versioning.go#L49-L84
+                                    // - https://github.com/minio/minio/blob/7aac2a2c5b7c882e68c1ce017d8256be2feea27f/internal/bucket/versioning/versioning.go#L157-L166
+                                    if op.name == "PutBucketVersioning"
+                                        && field.name == "versioning_configuration"
+                                        && matches!(patch, Some(Patch::Minio))
+                                    {
+                                        g!("// MinIO reference:");
+                                        g!(
+                                            "// - https://github.com/minio/minio/blob/7aac2a2c5b7c882e68c1ce017d8256be2feea27f/internal/bucket/versioning/versioning.go#L49-L84"
+                                        );
+                                        g!(
+                                            "// - https://github.com/minio/minio/blob/7aac2a2c5b7c882e68c1ce017d8256be2feea27f/internal/bucket/versioning/versioning.go#L157-L166"
+                                        );
+                                        g!("let {}: {} = http::take_versioning_configuration(req)?;", field.name, field.type_);
+                                    } else {
+                                        g!("let {}: {} = http::take_xml_body(req)?;", field.name, field.type_);
+                                    }
                                 }
                             }
                         },
@@ -587,7 +922,8 @@ fn codegen_op_http_de_multipart(op: &Operation, rust_types: &RustTypes) {
         "",
         "let vec_stream = req.s3ext.vec_stream.take().expect(\"missing vec stream\");",
         "",
-        "let content_length = i64::try_from(vec_stream.exact_remaining_length()).map_err(|e|s3_error!(e, InvalidArgument, \"content-length overflow\"))?;",
+        "let content_length = i64::try_from(vec_stream.exact_remaining_length())",
+        "    .map_err(|e| s3_error!(e, InvalidArgument, \"content-length overflow\"))?;",
         "let content_length = (content_length != 0).then_some(content_length);",
         "",
         "let body: Option<StreamingBlob> = Some(StreamingBlob::new(vec_stream));",
@@ -760,12 +1096,22 @@ impl PathPattern {
         qs.retain(|(n, v)| n != "x-id" && v.is_empty().not());
         qs
     }
+
+    fn x_id_value(part: &str) -> Option<String> {
+        let (_, q) = part.split_once('?')?;
+        let qs: Vec<(String, String)> = serde_urlencoded::from_str(q).unwrap();
+        qs.into_iter()
+            .find(|(n, _)| n == "x-id")
+            .map(|(_, v)| v)
+            .filter(|v| v.is_empty().not())
+    }
 }
 
 struct Route<'a> {
     op: &'a Operation,
     query_tag: Option<String>,
     query_patterns: Vec<(String, String)>,
+    x_id: Option<String>,
     required_headers: Vec<&'a str>,
     required_query_strings: Vec<&'a str>,
     needs_full_body: bool,
@@ -774,6 +1120,11 @@ struct Route<'a> {
 fn collect_routes<'a>(ops: &'a Operations, rust_types: &'a RustTypes) -> HashMap<String, HashMap<PathPattern, Vec<Route<'a>>>> {
     let mut ans: HashMap<String, HashMap<PathPattern, Vec<Route<'_>>>> = default();
     for op in ops.values() {
+        // PostObject is resolved in ops::prepare() for multipart requests.
+        // Do not put it into the generated router to avoid overlaps.
+        if op.name == "PostObject" {
+            continue;
+        }
         let pat = PathPattern::parse(&op.http_uri);
         let map = ans.entry(op.http_method.clone()).or_default();
         let vec = map.entry(pat).or_default();
@@ -782,6 +1133,7 @@ fn collect_routes<'a>(ops: &'a Operations, rust_types: &'a RustTypes) -> HashMap
             op,
             query_tag: PathPattern::query_tag(&op.http_uri),
             query_patterns: PathPattern::query_patterns(&op.http_uri),
+            x_id: PathPattern::x_id_value(&op.http_uri),
 
             required_headers: required_headers(op, rust_types),
             required_query_strings: required_query_strings(op, rust_types),
@@ -939,7 +1291,11 @@ fn codegen_router(ops: &Operations, rust_types: &RustTypes) {
                                 && route.query_tag.is_none()
                         };
                         let final_count = group.iter().filter(|r| is_final_op(r)).count();
-                        assert!(final_count <= 1);
+                        // When multiple final ops exist, they must be disambiguated by x-id
+                        if final_count > 1 {
+                            assert!(group.iter().filter(|r| is_final_op(r)).all(|r| r.x_id.is_some()));
+                        }
+                        let fallback_op_name = group.iter().find(|r| is_final_op(r)).map(|r| r.op.name.as_str());
 
                         g!("if let Some(qs) = qs {{");
                         for route in group {
@@ -952,35 +1308,72 @@ fn codegen_router(ops: &Operations, rust_types: &RustTypes) {
                                 let tag = route.query_tag.as_deref().unwrap();
                                 assert!(tag.as_bytes().iter().all(|&x| x == b'-' || x.is_ascii_alphabetic()), "{tag}");
                             }
-                            if has_query_patterns {
-                                assert!(qp.len() <= 1);
-                            }
-
                             match (has_query_tag, has_query_patterns) {
                                 (true, true) => {
-                                    assert_eq!(route.op.name, "SelectObjectContent");
-
                                     let tag = route.query_tag.as_deref().unwrap();
-                                    let (n, v) = qp.first().unwrap();
+                                    let pattern_check = qp
+                                        .iter()
+                                        .map(|(n, v)| format!("super::check_query_pattern(qs, \"{n}\",\"{v}\")"))
+                                        .collect::<Vec<_>>()
+                                        .join(" && ");
 
-                                    g!("if qs.has(\"{tag}\") && super::check_query_pattern(qs, \"{n}\",\"{v}\") {{");
+                                    g!("if qs.has(\"{tag}\") && {pattern_check} {{");
                                     succ(route, true);
                                     g!("}}");
                                 }
                                 (true, false) => {
                                     let tag = route.query_tag.as_deref().unwrap();
 
-                                    g!("if qs.has(\"{tag}\") {{");
-                                    succ(route, true);
-                                    g!("}}");
+                                    // Special handling for operations that share the same query tag
+                                    // but are differentiated by the presence of an 'id' parameter
+                                    let needs_id_check = matches!(
+                                        route.op.name.as_str(),
+                                        "GetBucketAnalyticsConfiguration"
+                                            | "GetBucketIntelligentTieringConfiguration"
+                                            | "GetBucketInventoryConfiguration"
+                                            | "GetBucketMetricsConfiguration"
+                                    );
+                                    let needs_no_id_check = matches!(
+                                        route.op.name.as_str(),
+                                        "ListBucketAnalyticsConfigurations"
+                                            | "ListBucketIntelligentTieringConfigurations"
+                                            | "ListBucketInventoryConfigurations"
+                                            | "ListBucketMetricsConfigurations"
+                                    );
+
+                                    if needs_id_check {
+                                        g!("if qs.has(\"{tag}\") && qs.has(\"id\") {{");
+                                        succ(route, true);
+                                        g!("}}");
+                                    } else if needs_no_id_check {
+                                        g!("if qs.has(\"{tag}\") && !qs.has(\"id\") {{");
+                                        succ(route, true);
+                                        g!("}}");
+                                    } else {
+                                        g!("if qs.has(\"{tag}\") {{");
+                                        succ(route, true);
+                                        g!("}}");
+                                    }
                                 }
                                 (false, true) => {
-                                    let (n, v) = qp.first().unwrap();
-                                    g!("if super::check_query_pattern(qs, \"{n}\",\"{v}\") {{");
+                                    let pattern_check = qp
+                                        .iter()
+                                        .map(|(n, v)| format!("super::check_query_pattern(qs, \"{n}\",\"{v}\")"))
+                                        .collect::<Vec<_>>()
+                                        .join(" && ");
+                                    g!("if {pattern_check} {{");
                                     succ(route, true);
                                     g!("}}");
                                 }
-                                (false, false) => {}
+                                (false, false) => {
+                                    // When multiple final ops exist, use x-id to disambiguate non-fallback routes
+                                    if final_count > 1 && Some(route.op.name.as_str()) != fallback_op_name {
+                                        let x_id = route.x_id.as_deref().unwrap();
+                                        g!("if super::check_query_pattern(qs, \"x-id\",\"{x_id}\") {{");
+                                        succ(route, true);
+                                        g!("}}");
+                                    }
+                                }
                             }
                         }
                         g!("}}");
@@ -1018,10 +1411,9 @@ fn codegen_router(ops: &Operations, rust_types: &RustTypes) {
                             }
 
                             if qs.is_empty().not() {
-                                g!("if let Some(qs) = qs {{");
-                                g!("if {cond} {{");
+                                g!("if let Some(qs) = qs");
+                                g!("    && {cond} {{");
                                 succ(route, true);
-                                g!("}}");
                                 g!("}}");
                             } else {
                                 g!("if {cond} {{");
@@ -1030,9 +1422,8 @@ fn codegen_router(ops: &Operations, rust_types: &RustTypes) {
                             }
                         }
 
-                        if final_count == 1 {
-                            let route = group.last().unwrap();
-                            assert!(is_final_op(route));
+                        if final_count >= 1 {
+                            let route = group.iter().find(|r| is_final_op(r)).unwrap();
                             succ(route, false);
                         } else {
                             g!("Err(super::unknown_operation())");

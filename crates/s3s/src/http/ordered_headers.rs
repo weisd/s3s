@@ -1,7 +1,8 @@
 //! Ordered headers
 
+use std::str::Utf8Error;
+
 use hyper::HeaderMap;
-use hyper::header::ToStrError;
 
 use crate::utils::stable_sort_by_first;
 
@@ -34,11 +35,12 @@ impl<'a> OrderedHeaders<'a> {
     ///
     /// # Errors
     /// Returns [`ToStrError`] if header value cannot be converted to string slice
-    pub fn from_headers(map: &'a HeaderMap) -> Result<Self, ToStrError> {
+    pub fn from_headers(map: &'a HeaderMap) -> Result<Self, Utf8Error> {
         let mut headers: Vec<(&'a str, &'a str)> = Vec::with_capacity(map.len());
 
         for (name, value) in map {
-            headers.push((name.as_str(), value.to_str()?));
+            let value = std::str::from_utf8(value.as_bytes())?;
+            headers.push((name.as_str(), value));
         }
         stable_sort_by_first(&mut headers);
 
@@ -65,10 +67,10 @@ impl<'a> OrderedHeaders<'a> {
         let mut iter = slice[lower_bound..].iter().copied();
         let pair = iter.next()?;
 
-        if let Some(following) = iter.next() {
-            if following.0 == name {
-                return None;
-            }
+        if let Some(following) = iter.next()
+            && following.0 == name
+        {
+            return None;
         }
 
         (pair.0 == name).then_some(pair)
@@ -105,10 +107,8 @@ impl<'a> OrderedHeaders<'a> {
                 headers.push(pair);
                 has_value = true;
             }
-            if !has_value {
-                if let Some(value) = on_missing(name.as_ref()) {
-                    headers.push((name.as_ref(), value));
-                }
+            if !has_value && let Some(value) = on_missing(name.as_ref()) {
+                headers.push((name.as_ref(), value));
             }
         }
         Self { headers }

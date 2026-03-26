@@ -1,13 +1,12 @@
 name: CI
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
     branches:
       - main
       - 'feat/**'
+  merge_group:
+    types: [checks_requested]
   schedule:
     - cron: '0 0 * * 0' # at midnight of each sunday
   workflow_dispatch:
@@ -32,11 +31,9 @@ jobs:
     if: needs.skip-check.outputs.should_skip != 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: taiki-e/install-action@just
-      - uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
+      - uses: astral-sh/setup-uv@v7
       - run: just ci-python
 
   rust:
@@ -47,11 +44,11 @@ jobs:
       fail-fast: false
       matrix:
         toolchain: 
-          - 1.86.0 # MSRV
+          - 1.92.0 # MSRV
           - stable
           - nightly
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: taiki-e/install-action@just
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -71,7 +68,7 @@ jobs:
           - windows-latest
           - macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: taiki-e/install-action@just
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -82,7 +79,7 @@ jobs:
     if: needs.skip-check.outputs.should_skip != 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: taiki-e/install-action@just
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -93,20 +90,37 @@ jobs:
           cd crates/s3s-wasm
           wasm-pack test --node
 
-  mint-proxy-minio:
-    name: e2e (mint, s3s-proxy, minio)
+  coverage:
     needs: skip-check
     if: needs.skip-check.outputs.should_skip != 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - run: |
+          cargo llvm-cov -p s3s --all-features --codecov --output-path target/codecov.json
+      - uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: target/codecov.json
+
+  mint-proxy-minio:
+    name: e2e (mint, s3s-proxy, minio)
+    needs: skip-check
+    if: github.event_name != 'pull_request' && needs.skip-check.outputs.should_skip != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
       - run: docker pull minio/mint:edge
       - run: docker pull minio/minio:latest
       - run: just install s3s-proxy
       - run: ./scripts/e2e-mint.sh
       - run: ./scripts/report-mint.py /tmp/mint/log.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: mint-proxy-minio.logs
           path: ./target/s3s-proxy.log
@@ -114,27 +128,124 @@ jobs:
   e2e-fs:
     name: e2e (s3s-e2e, s3s-fs)
     needs: skip-check
-    if: needs.skip-check.outputs.should_skip != 'true'
+    if: github.event_name != 'pull_request' && needs.skip-check.outputs.should_skip != 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
       - run: just install s3s-e2e
       - run: just install s3s-fs
       - run: ./scripts/e2e-fs.sh --filter '^Basic'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: e2e-fs.logs
           path: ./target/s3s-fs.log
 
+  e2e-boto3-fs:
+    name: e2e (boto3, s3s-fs)
+    needs: skip-check
+    if: github.event_name != 'pull_request' && needs.skip-check.outputs.should_skip != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+      - run: uv sync
+      - run: just install s3s-fs
+      - run: ./scripts/e2e-boto3-fs.sh
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-boto3-fs.logs
+          path: ./target/s3s-fs-boto3.log
+
+  e2e-boto3-minio:
+    name: e2e (boto3, minio)
+    needs: skip-check
+    if: github.event_name != 'pull_request' && needs.skip-check.outputs.should_skip != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+      - run: uv sync
+      - run: docker pull minio/minio:latest
+      - run: ./scripts/e2e-boto3-minio.sh
+
   e2e-minio:
     name: e2e (s3s-e2e, minio)
     needs: skip-check
-    if: needs.skip-check.outputs.should_skip != 'true'
+    if: github.event_name != 'pull_request' && needs.skip-check.outputs.should_skip != 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
       - run: docker pull minio/minio:latest
       - run: just install s3s-e2e
       - run: ./scripts/e2e-minio.sh
+
+  s3tests-proxy-minio:
+    name: e2e (s3-tests, s3s-proxy, minio)
+    needs: skip-check
+    if: github.event_name != 'pull_request' && needs.skip-check.outputs.should_skip != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+      - name: Clone s3-tests
+        run: git clone --depth 1 https://github.com/ceph/s3-tests.git /tmp/s3-tests
+      - name: Get s3-tests requirements hash
+        id: s3tests-hash
+        run: echo "hash=$(sha256sum /tmp/s3-tests/requirements.txt | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Get Python version
+        id: python-version
+        run: python3 -c "import sys, os; f=open(os.environ['GITHUB_OUTPUT'],'a'); f.write(f'version={sys.version_info[0]}.{sys.version_info[1]}\n'); f.close()"
+      - name: Restore s3tests venv cache
+        uses: actions/cache@v5
+        with:
+          path: /tmp/s3-tests/.venv
+          key: s3tests-venv-${{ runner.os }}-py${{ steps.python-version.outputs.version }}-${{ steps.s3tests-hash.outputs.hash }}
+      - run: docker pull minio/minio:latest
+      - run: just install s3s-proxy
+      - run: ./scripts/e2e-s3tests.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: e2e-s3tests.logs
+          path: |
+            ./target/s3-tests.log
+            ./target/s3-tests.junit.xml
+            ./target/s3s-proxy.log
+
+  status-check:
+    if: always()
+    needs:
+      - python
+      - rust
+      - cross-test
+      - wasm-test
+      - coverage
+      - e2e-fs
+      - e2e-boto3-fs
+      - e2e-boto3-minio
+      - e2e-minio
+      - mint-proxy-minio
+      - s3tests-proxy-minio
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all jobs
+        run: |
+          # Check if any required job failed
+          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
+            echo "At least one required job failed"
+            exit 1
+          fi
+          
+          # Check if any required job was cancelled
+          if [[ "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "At least one required job was cancelled"
+            exit 1
+          fi
+          
+          echo "All jobs passed or were skipped"
+          exit 0

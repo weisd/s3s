@@ -6,6 +6,7 @@
 // CreateBucket
 // CreateBucketMetadataTableConfiguration
 // CreateMultipartUpload
+// CreateSession
 // DeleteBucket
 // DeleteBucketAnalyticsConfiguration
 // DeleteBucketCors
@@ -61,11 +62,13 @@
 // ListBucketInventoryConfigurations
 // ListBucketMetricsConfigurations
 // ListBuckets
+// ListDirectoryBuckets
 // ListMultipartUploads
 // ListObjectVersions
 // ListObjects
 // ListObjectsV2
 // ListParts
+// PostObject
 // PutBucketAccelerateConfiguration
 // PutBucketAcl
 // PutBucketAnalyticsConfiguration
@@ -101,6 +104,7 @@
 #![allow(clippy::borrow_interior_mutable_const)]
 #![allow(clippy::needless_pass_by_value)]
 #![allow(clippy::too_many_lines)]
+#![allow(clippy::collapsible_if)]
 #![allow(clippy::unnecessary_wraps)]
 
 use crate::dto::*;
@@ -282,6 +286,16 @@ impl http::TryIntoHeaderValue for ServerSideEncryption {
     }
 }
 
+impl http::TryIntoHeaderValue for SessionMode {
+    type Error = http::InvalidHeaderValue;
+    fn try_into_header_value(self) -> Result<http::HeaderValue, Self::Error> {
+        match Cow::from(self) {
+            Cow::Borrowed(s) => http::HeaderValue::try_from(s),
+            Cow::Owned(s) => http::HeaderValue::try_from(s),
+        }
+    }
+}
+
 impl http::TryIntoHeaderValue for StorageClass {
     type Error = http::InvalidHeaderValue;
     fn try_into_header_value(self) -> Result<http::HeaderValue, Self::Error> {
@@ -448,6 +462,14 @@ impl http::TryFromHeaderValue for ServerSideEncryption {
     }
 }
 
+impl http::TryFromHeaderValue for SessionMode {
+    type Error = http::ParseHeaderError;
+    fn try_from_header_value(val: &http::HeaderValue) -> Result<Self, Self::Error> {
+        let val = val.to_str().map_err(|_| http::ParseHeaderError::Enum)?;
+        Ok(Self::from(val.to_owned()))
+    }
+}
+
 impl http::TryFromHeaderValue for StorageClass {
     type Error = http::ParseHeaderError;
     fn try_from_header_value(val: &http::HeaderValue) -> Result<Self, Self::Error> {
@@ -555,7 +577,13 @@ impl CompleteMultipartUpload {
 
         let mpu_object_size: Option<MpuObjectSize> = http::parse_opt_header(req, &X_AMZ_MP_OBJECT_SIZE)?;
 
-        let multipart_upload: Option<CompletedMultipartUpload> = http::take_opt_xml_body(req)?;
+        let multipart_upload: Option<CompletedMultipartUpload> = match http::take_xml_body(req) {
+            Ok(body) => Some(body),
+            Err(e) if *e.code() == crate::S3ErrorCode::MissingRequestBodyError => {
+                return Err(crate::S3ErrorCode::MalformedXML.into());
+            }
+            Err(e) => return Err(e),
+        };
 
         let request_payer: Option<RequestPayer> = http::parse_opt_header(req, &X_AMZ_REQUEST_PAYER)?;
 
@@ -1065,6 +1093,70 @@ impl super::Operation for CreateMultipartUpload {
             access.create_multipart_upload(&mut s3_req).await?;
         }
         let result = s3.create_multipart_upload(s3_req).await;
+        let s3_resp = match result {
+            Ok(val) => val,
+            Err(err) => return super::serialize_error(err, false),
+        };
+        let mut resp = Self::serialize_http(s3_resp.output)?;
+        resp.headers.extend(s3_resp.headers);
+        resp.extensions.extend(s3_resp.extensions);
+        Ok(resp)
+    }
+}
+
+pub struct CreateSession;
+
+impl CreateSession {
+    pub fn deserialize_http(req: &mut http::Request) -> S3Result<CreateSessionInput> {
+        let bucket = http::unwrap_bucket(req);
+
+        let bucket_key_enabled: Option<BucketKeyEnabled> =
+            http::parse_opt_header(req, &X_AMZ_SERVER_SIDE_ENCRYPTION_BUCKET_KEY_ENABLED)?;
+
+        let ssekms_encryption_context: Option<SSEKMSEncryptionContext> =
+            http::parse_opt_header(req, &X_AMZ_SERVER_SIDE_ENCRYPTION_CONTEXT)?;
+
+        let ssekms_key_id: Option<SSEKMSKeyId> = http::parse_opt_header(req, &X_AMZ_SERVER_SIDE_ENCRYPTION_AWS_KMS_KEY_ID)?;
+
+        let server_side_encryption: Option<ServerSideEncryption> = http::parse_opt_header(req, &X_AMZ_SERVER_SIDE_ENCRYPTION)?;
+
+        let session_mode: Option<SessionMode> = http::parse_opt_header(req, &X_AMZ_CREATE_SESSION_MODE)?;
+
+        Ok(CreateSessionInput {
+            bucket,
+            bucket_key_enabled,
+            ssekms_encryption_context,
+            ssekms_key_id,
+            server_side_encryption,
+            session_mode,
+        })
+    }
+
+    pub fn serialize_http(x: CreateSessionOutput) -> S3Result<http::Response> {
+        let mut res = http::Response::with_status(http::StatusCode::OK);
+        http::set_xml_body(&mut res, &x)?;
+        http::add_opt_header(&mut res, X_AMZ_SERVER_SIDE_ENCRYPTION_BUCKET_KEY_ENABLED, x.bucket_key_enabled)?;
+        http::add_opt_header(&mut res, X_AMZ_SERVER_SIDE_ENCRYPTION_CONTEXT, x.ssekms_encryption_context)?;
+        http::add_opt_header(&mut res, X_AMZ_SERVER_SIDE_ENCRYPTION_AWS_KMS_KEY_ID, x.ssekms_key_id)?;
+        http::add_opt_header(&mut res, X_AMZ_SERVER_SIDE_ENCRYPTION, x.server_side_encryption)?;
+        Ok(res)
+    }
+}
+
+#[async_trait::async_trait]
+impl super::Operation for CreateSession {
+    fn name(&self) -> &'static str {
+        "CreateSession"
+    }
+
+    async fn call(&self, ccx: &CallContext<'_>, req: &mut http::Request) -> S3Result<http::Response> {
+        let input = Self::deserialize_http(req)?;
+        let mut s3_req = super::build_s3_request(input, req);
+        let s3 = ccx.s3;
+        if let Some(access) = ccx.access {
+            access.create_session(&mut s3_req).await?;
+        }
+        let result = s3.create_session(s3_req).await;
         let s3_resp = match result {
             Ok(val) => val,
             Err(err) => return super::serialize_error(err, false),
@@ -3970,6 +4062,52 @@ impl super::Operation for ListBuckets {
     }
 }
 
+pub struct ListDirectoryBuckets;
+
+impl ListDirectoryBuckets {
+    pub fn deserialize_http(req: &mut http::Request) -> S3Result<ListDirectoryBucketsInput> {
+        let continuation_token: Option<DirectoryBucketToken> = http::parse_opt_query(req, "continuation-token")?;
+
+        let max_directory_buckets: Option<MaxDirectoryBuckets> = http::parse_opt_query(req, "max-directory-buckets")?;
+
+        Ok(ListDirectoryBucketsInput {
+            continuation_token,
+            max_directory_buckets,
+        })
+    }
+
+    pub fn serialize_http(x: ListDirectoryBucketsOutput) -> S3Result<http::Response> {
+        let mut res = http::Response::with_status(http::StatusCode::OK);
+        http::set_xml_body(&mut res, &x)?;
+        Ok(res)
+    }
+}
+
+#[async_trait::async_trait]
+impl super::Operation for ListDirectoryBuckets {
+    fn name(&self) -> &'static str {
+        "ListDirectoryBuckets"
+    }
+
+    async fn call(&self, ccx: &CallContext<'_>, req: &mut http::Request) -> S3Result<http::Response> {
+        let input = Self::deserialize_http(req)?;
+        let mut s3_req = super::build_s3_request(input, req);
+        let s3 = ccx.s3;
+        if let Some(access) = ccx.access {
+            access.list_directory_buckets(&mut s3_req).await?;
+        }
+        let result = s3.list_directory_buckets(s3_req).await;
+        let s3_resp = match result {
+            Ok(val) => val,
+            Err(err) => return super::serialize_error(err, false),
+        };
+        let mut resp = Self::serialize_http(s3_resp.output)?;
+        resp.headers.extend(s3_resp.headers);
+        resp.extensions.extend(s3_resp.extensions);
+        Ok(resp)
+    }
+}
+
 pub struct ListMultipartUploads;
 
 impl ListMultipartUploads {
@@ -5722,7 +5860,13 @@ impl PutObjectLegalHold {
 
         let expected_bucket_owner: Option<AccountId> = http::parse_opt_header(req, &X_AMZ_EXPECTED_BUCKET_OWNER)?;
 
-        let legal_hold: Option<ObjectLockLegalHold> = http::take_opt_xml_body(req)?;
+        let legal_hold: Option<ObjectLockLegalHold> = match http::take_xml_body(req) {
+            Ok(body) => Some(body),
+            Err(e) if *e.code() == crate::S3ErrorCode::MissingRequestBodyError => {
+                return Err(crate::S3ErrorCode::MalformedXML.into());
+            }
+            Err(e) => return Err(e),
+        };
 
         let request_payer: Option<RequestPayer> = http::parse_opt_header(req, &X_AMZ_REQUEST_PAYER)?;
 
@@ -5850,7 +5994,13 @@ impl PutObjectRetention {
 
         let request_payer: Option<RequestPayer> = http::parse_opt_header(req, &X_AMZ_REQUEST_PAYER)?;
 
-        let retention: Option<ObjectLockRetention> = http::take_opt_xml_body(req)?;
+        let retention: Option<ObjectLockRetention> = match http::take_xml_body(req) {
+            Ok(body) => Some(body),
+            Err(e) if *e.code() == crate::S3ErrorCode::MissingRequestBodyError => {
+                return Err(crate::S3ErrorCode::MalformedXML.into());
+            }
+            Err(e) => return Err(e),
+        };
 
         let version_id: Option<ObjectVersionId> = http::parse_opt_query(req, "versionId")?;
 
@@ -6529,6 +6679,133 @@ impl super::Operation for WriteGetObjectResponse {
     }
 }
 
+pub struct PostObject;
+
+impl PostObject {
+    pub fn deserialize_http(req: &mut http::Request) -> S3Result<PostObjectInput> {
+        let Some(m) = req.s3ext.multipart.take() else {
+            return Err(invalid_request!("missing multipart form"));
+        };
+
+        // Parse POST-specific fields before consuming the multipart form
+        let success_action_redirect: Option<String> = match http::parse_field_value(&m, "success_action_redirect")? {
+            Some(v) => Some(v),
+            None => http::parse_field_value(&m, "redirect")?,
+        };
+        let success_action_status: Option<i32> = http::parse_field_value(&m, "success_action_status")?;
+
+        // Get the validated POST policy from request extensions
+        let policy = req.s3ext.post_policy.take();
+
+        let put_input = PutObject::deserialize_http_multipart(req, m)?;
+        let mut post_input = put_object_input_into_post_object_input(put_input);
+        post_input.success_action_redirect = success_action_redirect;
+        post_input.success_action_status = success_action_status;
+        post_input.policy = policy;
+        Ok(post_input)
+    }
+
+    pub fn serialize_http(
+        bucket: &str,
+        key: &str,
+        success_action_redirect: Option<&str>,
+        success_action_status: Option<i32>,
+        output: &PostObjectOutput,
+    ) -> S3Result<http::Response> {
+        let etag_str = output.e_tag.as_ref().map(ETag::value).unwrap_or_default();
+
+        // Handle success_action_redirect: return 303 See Other with Location header
+        if let Some(redirect_url) = success_action_redirect {
+            // Defense-in-depth: Reject URLs with control characters that could enable header injection
+            if redirect_url.chars().any(char::is_control) {
+                return Err(s3_error!(InvalidArgument, "success_action_redirect contains invalid control characters"));
+            }
+
+            // Parse the URL to validate and manipulate it properly
+            let mut url = url::Url::parse(redirect_url).map_err(|e| s3_error!(e, InvalidArgument, "Invalid redirect URL"))?;
+
+            // Add query parameters (bucket, key, etag) to the URL
+            url.query_pairs_mut()
+                .append_pair("bucket", bucket)
+                .append_pair("key", key)
+                .append_pair("etag", etag_str);
+
+            let mut res = http::Response::with_status(http::StatusCode::SEE_OTHER);
+            res.headers
+                .insert(hyper::header::LOCATION, url.as_str().parse().map_err(|e| s3_error!(e, InternalError))?);
+            return Ok(res);
+        }
+
+        // Handle success_action_status
+        match success_action_status {
+            Some(200) => {
+                // 200 OK with empty body
+                Ok(http::Response::with_status(http::StatusCode::OK))
+            }
+            Some(201) => {
+                // 201 Created with XML body using PostResponse DTO
+                let location = format!("/{bucket}/{key}");
+                let post_response = super::super::dto::PostResponse {
+                    location: &location,
+                    bucket,
+                    key,
+                    etag: etag_str,
+                };
+                let mut res = http::Response::with_status(http::StatusCode::CREATED);
+                http::set_xml_body(&mut res, &post_response)?;
+                Ok(res)
+            }
+            _ => {
+                // 204 No Content (default, also for unrecognized values)
+                Ok(http::Response::with_status(http::StatusCode::NO_CONTENT))
+            }
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl super::Operation for PostObject {
+    fn name(&self) -> &'static str {
+        "PostObject"
+    }
+
+    async fn call(&self, ccx: &CallContext<'_>, req: &mut http::Request) -> S3Result<http::Response> {
+        let post_input = Self::deserialize_http(req)?;
+        // Save POST-specific fields before conversion
+        let success_action_redirect = post_input.success_action_redirect.clone();
+        let success_action_status = post_input.success_action_status;
+        let bucket = post_input.bucket.clone();
+        let key = post_input.key.clone();
+
+        let put_input = post_object_input_into_put_object_input(post_input);
+        let mut put_req = super::build_s3_request(put_input, req);
+        let s3 = ccx.s3;
+        if let Some(access) = ccx.access {
+            // Keep backward-compatible behavior: POST object used to be gated by put_object access check.
+            access.put_object(&mut put_req).await?;
+        }
+        let mut post_req = put_req.map_input(put_object_input_into_post_object_input);
+        // Restore POST-specific fields that were lost during conversion
+        post_req.input.success_action_redirect.clone_from(&success_action_redirect);
+        post_req.input.success_action_status = success_action_status;
+        if let Some(access) = ccx.access {
+            // New hook for POST object (optional).
+            access.post_object(&mut post_req).await?;
+        }
+        let result = s3.post_object(post_req).await;
+        let s3_resp = match result {
+            Ok(val) => val,
+            Err(err) => return super::serialize_error(err, false),
+        };
+        // Serialize with POST-specific response behavior
+        let mut resp =
+            Self::serialize_http(&bucket, &key, success_action_redirect.as_deref(), success_action_status, &s3_resp.output)?;
+        resp.headers.extend(s3_resp.headers);
+        resp.extensions.extend(s3_resp.extensions);
+        Ok(resp)
+    }
+}
+
 pub fn resolve_route(
     req: &http::Request,
     s3_path: &S3Path,
@@ -6541,20 +6818,30 @@ pub fn resolve_route(
             S3Path::Object { .. } => Ok((&HeadObject as &'static dyn super::Operation, false)),
         },
         hyper::Method::GET => match s3_path {
-            S3Path::Root => Ok((&ListBuckets as &'static dyn super::Operation, false)),
+            S3Path::Root => {
+                if let Some(qs) = qs {
+                    if super::check_query_pattern(qs, "x-id", "ListDirectoryBuckets") {
+                        return Ok((&ListDirectoryBuckets as &'static dyn super::Operation, false));
+                    }
+                }
+                Ok((&ListBuckets as &'static dyn super::Operation, false))
+            }
             S3Path::Bucket { .. } => {
                 if let Some(qs) = qs {
-                    if qs.has("analytics") {
+                    if qs.has("analytics") && qs.has("id") {
                         return Ok((&GetBucketAnalyticsConfiguration as &'static dyn super::Operation, false));
                     }
-                    if qs.has("intelligent-tiering") {
+                    if qs.has("intelligent-tiering") && qs.has("id") {
                         return Ok((&GetBucketIntelligentTieringConfiguration as &'static dyn super::Operation, false));
                     }
-                    if qs.has("inventory") {
+                    if qs.has("inventory") && qs.has("id") {
                         return Ok((&GetBucketInventoryConfiguration as &'static dyn super::Operation, false));
                     }
-                    if qs.has("metrics") {
+                    if qs.has("metrics") && qs.has("id") {
                         return Ok((&GetBucketMetricsConfiguration as &'static dyn super::Operation, false));
+                    }
+                    if qs.has("session") {
+                        return Ok((&CreateSession as &'static dyn super::Operation, false));
                     }
                     if qs.has("accelerate") {
                         return Ok((&GetBucketAccelerateConfiguration as &'static dyn super::Operation, false));
@@ -6613,16 +6900,16 @@ pub fn resolve_route(
                     if qs.has("publicAccessBlock") {
                         return Ok((&GetPublicAccessBlock as &'static dyn super::Operation, false));
                     }
-                    if qs.has("analytics") {
+                    if qs.has("analytics") && !qs.has("id") {
                         return Ok((&ListBucketAnalyticsConfigurations as &'static dyn super::Operation, false));
                     }
-                    if qs.has("intelligent-tiering") {
+                    if qs.has("intelligent-tiering") && !qs.has("id") {
                         return Ok((&ListBucketIntelligentTieringConfigurations as &'static dyn super::Operation, false));
                     }
-                    if qs.has("inventory") {
+                    if qs.has("inventory") && !qs.has("id") {
                         return Ok((&ListBucketInventoryConfigurations as &'static dyn super::Operation, false));
                     }
-                    if qs.has("metrics") {
+                    if qs.has("metrics") && !qs.has("id") {
                         return Ok((&ListBucketMetricsConfigurations as &'static dyn super::Operation, false));
                     }
                     if qs.has("uploads") {
@@ -6658,10 +6945,10 @@ pub fn resolve_route(
                         return Ok((&GetObjectTorrent as &'static dyn super::Operation, false));
                     }
                 }
-                if let Some(qs) = qs {
-                    if qs.has("uploadId") {
-                        return Ok((&ListParts as &'static dyn super::Operation, false));
-                    }
+                if let Some(qs) = qs
+                    && qs.has("uploadId")
+                {
+                    return Ok((&ListParts as &'static dyn super::Operation, false));
                 }
                 Ok((&GetObject as &'static dyn super::Operation, false))
             }
@@ -6694,10 +6981,10 @@ pub fn resolve_route(
                         return Ok((&RestoreObject as &'static dyn super::Operation, true));
                     }
                 }
-                if let Some(qs) = qs {
-                    if qs.has("uploadId") {
-                        return Ok((&CompleteMultipartUpload as &'static dyn super::Operation, true));
-                    }
+                if let Some(qs) = qs
+                    && qs.has("uploadId")
+                {
+                    return Ok((&CompleteMultipartUpload as &'static dyn super::Operation, true));
                 }
                 Err(super::unknown_operation())
             }
@@ -6784,15 +7071,18 @@ pub fn resolve_route(
                         return Ok((&PutObjectTagging as &'static dyn super::Operation, true));
                     }
                 }
-                if let Some(qs) = qs {
-                    if qs.has("partNumber") && qs.has("uploadId") && req.headers.contains_key("x-amz-copy-source") {
-                        return Ok((&UploadPartCopy as &'static dyn super::Operation, false));
-                    }
+                if let Some(qs) = qs
+                    && qs.has("partNumber")
+                    && qs.has("uploadId")
+                    && req.headers.contains_key("x-amz-copy-source")
+                {
+                    return Ok((&UploadPartCopy as &'static dyn super::Operation, false));
                 }
-                if let Some(qs) = qs {
-                    if qs.has("partNumber") && qs.has("uploadId") {
-                        return Ok((&UploadPart as &'static dyn super::Operation, false));
-                    }
+                if let Some(qs) = qs
+                    && qs.has("partNumber")
+                    && qs.has("uploadId")
+                {
+                    return Ok((&UploadPart as &'static dyn super::Operation, false));
                 }
                 if req.headers.contains_key("x-amz-copy-source") {
                     return Ok((&CopyObject as &'static dyn super::Operation, false));
@@ -6855,10 +7145,10 @@ pub fn resolve_route(
                         return Ok((&DeleteObjectTagging as &'static dyn super::Operation, false));
                     }
                 }
-                if let Some(qs) = qs {
-                    if qs.has("uploadId") {
-                        return Ok((&AbortMultipartUpload as &'static dyn super::Operation, false));
-                    }
+                if let Some(qs) = qs
+                    && qs.has("uploadId")
+                {
+                    return Ok((&AbortMultipartUpload as &'static dyn super::Operation, false));
                 }
                 Ok((&DeleteObject as &'static dyn super::Operation, false))
             }

@@ -1,8 +1,9 @@
 use crate::auth::S3Auth;
 use crate::auth::SecretKey;
+use crate::config::S3ConfigProvider;
 use crate::error::*;
 use crate::http;
-use crate::http::{AwsChunkedStream, Body, Multipart};
+use crate::http::{AwsChunkedStream, Body, Multipart, MultipartLimits};
 use crate::http::{OrderedHeaders, OrderedQs};
 use crate::protocol::TrailingHeaders;
 use crate::sig_v2;
@@ -13,24 +14,28 @@ use crate::sig_v4::AmzDate;
 use crate::sig_v4::UploadStream;
 use crate::sig_v4::{AuthorizationV4, CredentialV4, PostSignatureV4, PresignedUrlV4};
 use crate::stream::ByteStream as _;
-use crate::utils::crypto::hex_sha256_string;
+use crate::utils::crypto::hex_sha256;
 use crate::utils::is_base64_encoded;
 
 use std::mem;
 use std::ops::Not;
+use std::sync::Arc;
 
-use bytestring::ByteString;
 use hyper::Method;
 use hyper::Uri;
 use mime::Mime;
 use tracing::debug;
+
+/// Maximum allowed size for STS request body (8KB should be enough for operations like `AssumeRole`)
+const MAX_STS_BODY_SIZE: usize = 8192;
 
 fn extract_amz_content_sha256<'a>(hs: &'_ OrderedHeaders<'a>) -> S3Result<Option<AmzContentSha256<'a>>> {
     let Some(val) = hs.get_unique(crate::header::X_AMZ_CONTENT_SHA256) else { return Ok(None) };
     match AmzContentSha256::parse(val) {
         Ok(x) => Ok(Some(x)),
         Err(e) => {
-            let mut err: S3Error = S3ErrorCode::Custom(ByteString::from_static("XAmzContentSHA256Mismatch")).into();
+            // https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_sigv-troubleshooting.html
+            let mut err = S3Error::new(S3ErrorCode::SignatureDoesNotMatch);
             err.set_message("invalid header: x-amz-content-sha256");
             err.set_source(Box::new(e));
             Err(err)
@@ -56,6 +61,7 @@ fn extract_amz_date(hs: &'_ OrderedHeaders<'_>) -> S3Result<Option<AmzDate>> {
 
 pub struct SignatureContext<'a> {
     pub auth: Option<&'a dyn S3Auth>,
+    pub config: &'a Arc<dyn S3ConfigProvider>,
 
     pub req_version: ::http::Version,
     pub req_method: &'a Method,
@@ -78,6 +84,7 @@ pub struct SignatureContext<'a> {
     pub trailing_headers: Option<TrailingHeaders>,
 }
 
+#[derive(Debug)]
 pub struct CredentialsExt {
     pub access_key: String,
     pub secret_key: SecretKey,
@@ -91,12 +98,12 @@ fn require_auth(auth: Option<&dyn S3Auth>) -> S3Result<&dyn S3Auth> {
 
 impl SignatureContext<'_> {
     pub async fn check(&mut self) -> S3Result<Option<CredentialsExt>> {
-        if self.req_method == Method::POST {
-            if let Some(ref mime) = self.mime {
-                if mime.type_() == mime::MULTIPART && mime.subtype() == mime::FORM_DATA {
-                    return Ok(Some(self.check_post_signature().await?));
-                }
-            }
+        if self.req_method == Method::POST
+            && let Some(ref mime) = self.mime
+            && mime.type_() == mime::MULTIPART
+            && mime.subtype() == mime::FORM_DATA
+        {
+            return self.check_post_signature().await;
         }
 
         if let Some(result) = self.v2_check().await {
@@ -113,16 +120,24 @@ impl SignatureContext<'_> {
     }
 
     #[tracing::instrument(skip(self))]
-    async fn check_post_signature(&mut self) -> S3Result<CredentialsExt> {
+    async fn check_post_signature(&mut self) -> S3Result<Option<CredentialsExt>> {
         let multipart = {
-            let mime = self.mime.as_ref().unwrap(); // assume: multipart
+            let Some(mime) = self.mime.as_ref() else {
+                return Err(invalid_request!("internal error: mime was unexpectedly None"));
+            };
 
             let boundary = mime
                 .get_param(mime::BOUNDARY)
                 .ok_or_else(|| invalid_request!("missing boundary"))?;
 
             let body = mem::take(self.req_body);
-            http::transform_multipart(body, boundary.as_str().as_bytes())
+            let config = self.config.snapshot();
+            let limits = MultipartLimits {
+                max_field_size: config.form_max_field_size,
+                max_fields_size: config.form_max_fields_size,
+                max_parts: config.form_max_parts,
+            };
+            http::transform_multipart(body, boundary.as_str().as_bytes(), limits)
                 .await
                 .map_err(|e| s3_error!(e, MalformedPOSTRequest))?
         };
@@ -131,25 +146,26 @@ impl SignatureContext<'_> {
 
         if multipart.find_field_value("x-amz-signature").is_some() {
             debug!("checking post signature v4");
-            return self.v4_check_post_signature(multipart).await;
+            return Ok(Some(self.v4_check_post_signature(multipart).await?));
         }
 
         if multipart.find_field_value("signature").is_some() {
             debug!("checking post signature v2");
-            return self.v2_check_post_signature(multipart).await;
+            return Ok(Some(self.v2_check_post_signature(multipart).await?));
         }
 
-        Err(invalid_request!("unsupported post signature"))
+        self.multipart = Some(multipart);
+        Ok(None)
     }
 
     #[tracing::instrument(skip(self))]
     pub async fn v4_check(&mut self) -> Option<S3Result<CredentialsExt>> {
         // query auth
-        if let Some(qs) = self.qs {
-            if qs.has("X-Amz-Signature") {
-                debug!("checking presigned url");
-                return Some(self.v4_check_presigned_url().await);
-            }
+        if let Some(qs) = self.qs
+            && qs.has("X-Amz-Signature")
+        {
+            debug!("checking presigned url");
+            return Some(self.v4_check_presigned_url().await);
         }
 
         // header auth
@@ -187,6 +203,14 @@ impl SignatureContext<'_> {
 
         let region = credential.aws_region;
         let service = credential.aws_service;
+
+        if !matches!(service, "s3" | "sts") {
+            return Err(s3_error!(
+                NotImplemented,
+                "unknown service '{}' in credential scope; expected 's3' or 'sts'",
+                service,
+            ));
+        }
 
         let string_to_sign = info.policy;
         let signature = sig_v4::calculate_signature(string_to_sign, &secret_key, &amz_date, region, service);
@@ -235,13 +259,12 @@ impl SignatureContext<'_> {
 
             let duration = now - date;
 
-            // Allow requests that are up to 15 minutes in the future.
+            // Allow requests that are up to max_skew_time_secs in the future.
             // This is to account for clock skew between the client and server.
             // See also https://github.com/minio/minio/blob/b5177993b371817699d3fa25685f54f88d8bfcce/cmd/signature-v4.go#L238-L242
 
-            // TODO: configurable max_skew_time
-
-            let max_skew_time = time::Duration::seconds(15 * 60);
+            let config = self.config.snapshot();
+            let max_skew_time = time::Duration::seconds(i64::from(config.presigned_url_max_skew_time_secs));
             if duration.is_negative() && duration.abs() > max_skew_time {
                 return Err(s3_error!(RequestTimeTooSkewed, "request date is later than server time too much"));
             }
@@ -258,15 +281,24 @@ impl SignatureContext<'_> {
         let region = presigned_url.credential.aws_region;
         let service = presigned_url.credential.aws_service;
 
+        if !matches!(service, "s3" | "sts") {
+            return Err(s3_error!(
+                NotImplemented,
+                "unknown service '{}' in credential scope; expected 's3' or 'sts'",
+                service,
+            ));
+        }
+
         let signature = {
             let headers = self.hs.find_multiple_with_on_missing(&presigned_url.signed_headers, |name| {
                 // HTTP/2 replaces `host` header with `:authority`
                 // but `:authority` is not in the request headers
                 // so we need to add it back if `host` is in the signed headers
-                if name == "host" && self.req_version == ::http::Version::HTTP_2 {
-                    if let Some(authority) = self.req_uri.authority() {
-                        return Some(authority.as_str());
-                    }
+                if name == "host"
+                    && matches!(self.req_version, ::http::Version::HTTP_2 | ::http::Version::HTTP_3)
+                    && let Some(authority) = self.req_uri.authority()
+                {
+                    return Some(authority.as_str());
                 }
                 None
             });
@@ -309,7 +341,11 @@ impl SignatureContext<'_> {
         let service = authorization.credential.aws_service;
 
         if !matches!(service, "s3" | "sts") {
-            return Err(s3_error!(NotImplemented, "unknown service"));
+            return Err(s3_error!(
+                NotImplemented,
+                "unknown service '{}' in credential scope; expected 's3' or 'sts'",
+                service,
+            ));
         }
 
         let auth = require_auth(self.auth)?;
@@ -340,10 +376,11 @@ impl SignatureContext<'_> {
                 // HTTP/2 replaces `host` header with `:authority`
                 // but `:authority` is not in the request headers
                 // so we need to add it back if `host` is in the signed headers
-                if name == "host" && self.req_version == ::http::Version::HTTP_2 {
-                    if let Some(authority) = self.req_uri.authority() {
-                        return Some(authority.as_str());
-                    }
+                if name == "host"
+                    && self.req_version == ::http::Version::HTTP_2
+                    && let Some(authority) = self.req_uri.authority()
+                {
+                    return Some(authority.as_str());
                 }
                 None
             });
@@ -383,22 +420,32 @@ impl SignatureContext<'_> {
                     return Err(s3_error!(NotImplemented, "AWS4-ECDSA-P256-SHA256 signing method is not implemented yet"));
                 }
                 None => {
-                    if matches!(*self.req_method, Method::GET | Method::HEAD) {
-                        sig_v4::create_canonical_request(method, uri_path, query_strings, &headers, sig_v4::Payload::Empty)
+                    // For STS requests, x-amz-content-sha256 header is not required
+                    // For S3 requests, this case should have been caught earlier (see lines 325-327)
+                    if service == "sts" {
+                        // STS requests require computing the payload hash from the body
+                        // Read the body (it's small for STS requests like AssumeRole)
+                        let body_bytes = self
+                            .req_body
+                            .store_all_limited(MAX_STS_BODY_SIZE)
+                            .await
+                            .map_err(|e| invalid_request!("failed to read STS request body: {}", e))?;
+
+                        // Compute SHA256 hash and convert to hex
+                        let hash = hex_sha256(&body_bytes, str::to_owned);
+
+                        // Create canonical request with the computed hash
+                        sig_v4::create_canonical_request(
+                            method,
+                            uri_path,
+                            query_strings,
+                            &headers,
+                            sig_v4::Payload::SingleChunk(&hash),
+                        )
                     } else {
-                        let bytes = super::extract_full_body(self.content_length, self.req_body).await?;
-                        if bytes.is_empty() {
-                            sig_v4::create_canonical_request(method, uri_path, query_strings, &headers, sig_v4::Payload::Empty)
-                        } else {
-                            let payload_checksum = hex_sha256_string(&bytes);
-                            sig_v4::create_canonical_request(
-                                method,
-                                uri_path,
-                                query_strings,
-                                &headers,
-                                sig_v4::Payload::SingleChunk(&payload_checksum),
-                            )
-                        }
+                        // According to AWS S3 protocol, x-amz-content-sha256 header is required for
+                        // all S3 requests authenticated with Signature V4. Reject if missing.
+                        return Err(invalid_request!("missing header: x-amz-content-sha256"));
                     }
                 }
             };
@@ -427,8 +474,8 @@ impl SignatureContext<'_> {
                 mem::take(self.req_body),
                 signature.into(),
                 amz_date,
-                authorization.credential.aws_region.into(),
-                authorization.credential.aws_service.into(),
+                region.into(),
+                service.into(),
                 secret_key.clone(),
                 decoded_content_length,
                 unsigned,
@@ -455,6 +502,13 @@ impl SignatureContext<'_> {
             let stream = UploadStream::new(body, length, expected_checksum)
                 .map_err(|_| invalid_request!("invalid header: x-amz-content-sha256"))?;
             *self.req_body = Body::from(stream.into_byte_stream());
+        } else if matches!(amz_content_sha256, Some(AmzContentSha256::UnsignedPayload)) {
+            // For non-streaming unsigned payloads, require Content-Length.
+            // This aligns with MinIO behavior: PutObject with chunked Transfer-Encoding
+            // (no Content-Length) is rejected with MissingContentLength (411).
+            if self.content_length.is_none() && self.req_body.remaining_length().exact().is_none() {
+                return Err(s3_error!(MissingContentLength, "missing header: content-length"));
+            }
         }
 
         Ok(CredentialsExt {
@@ -468,19 +522,19 @@ impl SignatureContext<'_> {
     #[tracing::instrument(skip(self))]
     pub async fn v2_check(&mut self) -> Option<S3Result<CredentialsExt>> {
         // query auth
-        if let Some(qs) = self.qs {
-            if qs.has("Signature") {
-                debug!("checking presigned url");
-                return Some(self.v2_check_presigned_url().await);
-            }
+        if let Some(qs) = self.qs
+            && qs.has("Signature")
+        {
+            debug!("checking presigned url");
+            return Some(self.v2_check_presigned_url().await);
         }
 
         // header auth
-        if let Some(auth) = self.hs.get_unique(crate::header::AUTHORIZATION) {
-            if let Ok(auth) = AuthorizationV2::parse(auth) {
-                debug!("checking header auth");
-                return Some(self.v2_check_header_auth(auth).await);
-            }
+        if let Some(auth) = self.hs.get_unique(crate::header::AUTHORIZATION)
+            && let Ok(auth) = AuthorizationV2::parse(auth)
+        {
+            debug!("checking header auth");
+            return Some(self.v2_check_header_auth(auth).await);
         }
 
         None
@@ -589,5 +643,281 @@ impl SignatureContext<'_> {
             region: None,
             service: Some("s3".into()),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_amz_content_sha256_missing() {
+        // Test that extract_amz_content_sha256 returns None when header is missing
+        let headers =
+            OrderedHeaders::from_slice_unchecked(&[("host", "example.s3.amazonaws.com"), ("x-amz-date", "20130524T000000Z")]);
+        let result = extract_amz_content_sha256(&headers).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_extract_amz_content_sha256_present() {
+        // Test that extract_amz_content_sha256 returns Some when header is present
+        let headers = OrderedHeaders::from_slice_unchecked(&[
+            ("host", "example.s3.amazonaws.com"),
+            ("x-amz-content-sha256", "UNSIGNED-PAYLOAD"),
+            ("x-amz-date", "20130524T000000Z"),
+        ]);
+        let result = extract_amz_content_sha256(&headers).unwrap();
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), AmzContentSha256::UnsignedPayload));
+    }
+
+    #[test]
+    fn test_extract_amz_content_sha256_invalid() {
+        // Test that extract_amz_content_sha256 returns error for invalid header value
+        let headers = OrderedHeaders::from_slice_unchecked(&[
+            ("host", "example.s3.amazonaws.com"),
+            ("x-amz-content-sha256", "INVALID-VALUE"),
+            ("x-amz-date", "20130524T000000Z"),
+        ]);
+        let result = extract_amz_content_sha256(&headers);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message().unwrap().contains("x-amz-content-sha256"));
+    }
+
+    #[tokio::test]
+    async fn post_signature_allows_anonymous() {
+        use crate::config::{S3ConfigProvider, StaticConfigProvider};
+        use std::sync::Arc;
+
+        let boundary = "boundary123";
+        let body = format!(
+            "\r\n--{boundary}\r\n\
+Content-Disposition: form-data; name=\"key\"; filename=\"key\"\r\n\r\n\
+foo.txt\r\n\
+--{boundary}\r\n\
+Content-Disposition: form-data; name=\"file\"; filename=\"file.txt\"\r\n\
+Content-Type: text/plain\r\n\r\n\
+file content\r\n\
+--{boundary}--\r\n"
+        );
+        let mut body = Body::from(body);
+        let mime: Mime = format!("multipart/form-data; boundary={boundary}").parse().unwrap();
+
+        let config: Arc<dyn S3ConfigProvider> = Arc::new(StaticConfigProvider::default());
+        let method = Method::POST;
+        let uri = Uri::from_static("http://localhost/test-bucket");
+
+        let mut cx = SignatureContext {
+            auth: None,
+            config: &config,
+            req_version: ::http::Version::HTTP_11,
+            req_method: &method,
+            req_uri: &uri,
+            req_body: &mut body,
+            qs: None,
+            hs: OrderedHeaders::from_slice_unchecked(&[]),
+            decoded_uri_path: "/test-bucket".to_owned(),
+            vh_bucket: None,
+            content_length: None,
+            mime: Some(mime),
+            decoded_content_length: None,
+            transformed_body: None,
+            multipart: None,
+            trailing_headers: None,
+        };
+
+        let credentials = cx.check().await.unwrap();
+        assert!(credentials.is_none(), "anonymous POST should not require credentials");
+
+        let multipart = cx.multipart.expect("multipart should be stored");
+        assert_eq!(multipart.find_field_value("key"), Some("foo.txt"));
+        assert_eq!(multipart.file.name, "file.txt");
+    }
+
+    #[tokio::test]
+    async fn test_sts_body_hash_computation() {
+        // Test that STS request body hash is computed correctly
+        use crate::utils::crypto::hex_sha256;
+
+        // Typical STS AssumeRole request body
+        let body_content = b"Action=AssumeRole&RoleArn=arn:aws:iam::123456789012:role/test-role&RoleSessionName=test-session";
+
+        // Compute hash
+        let hash = hex_sha256(body_content, str::to_owned);
+
+        // Verify hash is a valid hex string of correct length (64 chars for SHA256)
+        assert_eq!(hash.len(), 64);
+        assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
+
+        // Verify hash is deterministic
+        let hash2 = hex_sha256(body_content, str::to_owned);
+        assert_eq!(hash, hash2);
+    }
+
+    #[tokio::test]
+    async fn test_sts_body_size_limit_enforced() {
+        // Test that body size limit is enforced for STS requests
+        use bytes::Bytes;
+
+        // Create a body that exceeds MAX_STS_BODY_SIZE
+        let large_body = vec![b'x'; MAX_STS_BODY_SIZE + 1];
+        let mut body = Body::from(Bytes::from(large_body));
+
+        // Try to read with limit
+        let result = body.store_all_limited(MAX_STS_BODY_SIZE).await;
+
+        // Should fail due to size limit
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_sts_body_within_limit() {
+        // Test that body reading succeeds when within limit
+        use bytes::Bytes;
+
+        // Create a body within the limit
+        let small_body = b"Action=AssumeRole&RoleArn=test&RoleSessionName=session";
+        let mut body = Body::from(Bytes::from(&small_body[..]));
+
+        // Try to read with limit
+        let result = body.store_all_limited(MAX_STS_BODY_SIZE).await;
+
+        // Should succeed
+        assert!(result.is_ok());
+        let bytes = result.unwrap();
+        assert_eq!(&bytes[..], &small_body[..]);
+    }
+
+    #[test]
+    fn test_sts_max_body_size_constant() {
+        // Verify the constant is set to a reasonable value
+        assert_eq!(MAX_STS_BODY_SIZE, 8192);
+        // STS requests are typically small (under 2KB for AssumeRole)
+        // 8KB provides a good safety margin
+    }
+
+    /// V4 presigned URL with an unknown service name must be rejected as `NotImplemented`.
+    ///
+    /// Covers the service whitelist fix in `v4_check_presigned_url`.
+    #[tokio::test]
+    async fn v4_presigned_url_rejects_unknown_service() {
+        use crate::S3ErrorCode;
+        use crate::auth::SecretKey;
+        use crate::config::{S3ConfigProvider, StaticConfigProvider};
+        use std::sync::Arc;
+
+        // Credential scope uses "custom-svc" instead of the allowed "s3" or "sts".
+        // The date is old (2013) with a huge Expires so the expiry check does not fire first.
+        let qs = OrderedQs::parse(concat!(
+            "X-Amz-Algorithm=AWS4-HMAC-SHA256",
+            "&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fcustom-svc%2Faws4_request",
+            "&X-Amz-Date=20130524T000000Z",
+            "&X-Amz-Expires=999999999",
+            "&X-Amz-SignedHeaders=host",
+            // Signature must be 64 lowercase hex chars to pass PresignedUrlV4::parse.
+            "&X-Amz-Signature=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ))
+        .unwrap();
+
+        let access_key = "AKIAIOSFODNN7EXAMPLE";
+        let secret_key: SecretKey = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".into();
+        let auth = crate::auth::SimpleAuth::from_single(access_key, secret_key);
+        let config: Arc<dyn S3ConfigProvider> = Arc::new(StaticConfigProvider::default());
+
+        let method = Method::GET;
+        let uri = Uri::from_static("https://s3.amazonaws.com/test.txt");
+        let mut body = Body::empty();
+
+        let mut cx = SignatureContext {
+            auth: Some(&auth),
+            config: &config,
+            req_version: ::http::Version::HTTP_11,
+            req_method: &method,
+            req_uri: &uri,
+            req_body: &mut body,
+            qs: Some(&qs),
+            hs: OrderedHeaders::from_slice_unchecked(&[]),
+            decoded_uri_path: "/test.txt".to_owned(),
+            vh_bucket: None,
+            content_length: None,
+            mime: None,
+            decoded_content_length: None,
+            transformed_body: None,
+            multipart: None,
+            trailing_headers: None,
+        };
+
+        let err = cx
+            .v4_check_presigned_url()
+            .await
+            .expect_err("unknown service must be rejected");
+        assert_eq!(err.code(), &S3ErrorCode::NotImplemented);
+    }
+
+    /// `SigV2` does not carry region in the credential scope, so `CredentialsExt.region`
+    /// must always be `None` and `service` must always be `Some("s3")`.
+    ///
+    /// Covers the documented `SigV2` behavior (`VirtualHost` region fallback relies on this).
+    #[tokio::test]
+    async fn v2_header_auth_returns_no_region() {
+        use crate::auth::SecretKey;
+        use crate::config::{S3ConfigProvider, StaticConfigProvider};
+        use std::sync::Arc;
+
+        let access_key = "AKIAIOSFODNN7EXAMPLE";
+        let secret_key: SecretKey = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".into();
+        let auth = crate::auth::SimpleAuth::from_single(access_key, secret_key.clone());
+        let config: Arc<dyn S3ConfigProvider> = Arc::new(StaticConfigProvider::default());
+
+        let date = "Fri, 24 Jan 2030 12:00:00 +0000";
+        let hs = OrderedHeaders::from_slice_unchecked(&[("date", date), ("host", "s3.amazonaws.com")]);
+
+        let method = Method::GET;
+        let uri = Uri::from_static("https://s3.amazonaws.com/test-bucket/test-key");
+        let mut body = Body::empty();
+
+        // Compute the expected signature using the same logic as the verification path.
+        let string_to_sign = crate::sig_v2::create_string_to_sign(
+            crate::sig_v2::Mode::HeaderAuth,
+            &method,
+            "/test-bucket/test-key",
+            None,
+            &hs,
+            None,
+        );
+        let signature = crate::sig_v2::calculate_signature(&secret_key, &string_to_sign);
+
+        let auth_v2 = AuthorizationV2 {
+            access_key,
+            signature: &signature,
+        };
+
+        let mut cx = SignatureContext {
+            auth: Some(&auth),
+            config: &config,
+            req_version: ::http::Version::HTTP_11,
+            req_method: &method,
+            req_uri: &uri,
+            req_body: &mut body,
+            qs: None,
+            hs,
+            decoded_uri_path: "/test-bucket/test-key".to_owned(),
+            vh_bucket: None,
+            content_length: None,
+            mime: None,
+            decoded_content_length: None,
+            transformed_body: None,
+            multipart: None,
+            trailing_headers: None,
+        };
+
+        let cred = cx
+            .v2_check_header_auth(auth_v2)
+            .await
+            .expect("valid SigV2 auth should succeed");
+        assert_eq!(cred.region, None, "SigV2 carries no region");
+        assert_eq!(cred.service.as_deref(), Some("s3"), "SigV2 service is always 's3'");
     }
 }

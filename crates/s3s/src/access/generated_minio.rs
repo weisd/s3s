@@ -72,6 +72,13 @@ pub trait S3Access: Send + Sync + 'static {
         Ok(())
     }
 
+    /// Checks whether the CreateSession request has accesses to the resources.
+    ///
+    /// This method returns `Ok(())` by default.
+    async fn create_session(&self, _req: &mut S3Request<CreateSessionInput>) -> S3Result<()> {
+        Ok(())
+    }
+
     /// Checks whether the DeleteBucket request has accesses to the resources.
     ///
     /// This method returns `Ok(())` by default.
@@ -505,6 +512,13 @@ pub trait S3Access: Send + Sync + 'static {
         Ok(())
     }
 
+    /// Checks whether the ListDirectoryBuckets request has accesses to the resources.
+    ///
+    /// This method returns `Ok(())` by default.
+    async fn list_directory_buckets(&self, _req: &mut S3Request<ListDirectoryBucketsInput>) -> S3Result<()> {
+        Ok(())
+    }
+
     /// Checks whether the ListMultipartUploads request has accesses to the resources.
     ///
     /// This method returns `Ok(())` by default.
@@ -516,6 +530,13 @@ pub trait S3Access: Send + Sync + 'static {
     ///
     /// This method returns `Ok(())` by default.
     async fn list_object_versions(&self, _req: &mut S3Request<ListObjectVersionsInput>) -> S3Result<()> {
+        Ok(())
+    }
+
+    /// Checks whether the ListObjectVersionsM request has accesses to the resources.
+    ///
+    /// This method returns `Ok(())` by default.
+    async fn list_object_versions_m(&self, _req: &mut S3Request<ListObjectVersionsInput>) -> S3Result<()> {
         Ok(())
     }
 
@@ -533,10 +554,24 @@ pub trait S3Access: Send + Sync + 'static {
         Ok(())
     }
 
+    /// Checks whether the ListObjectsV2M request has accesses to the resources.
+    ///
+    /// This method returns `Ok(())` by default.
+    async fn list_objects_v2m(&self, _req: &mut S3Request<ListObjectsV2Input>) -> S3Result<()> {
+        Ok(())
+    }
+
     /// Checks whether the ListParts request has accesses to the resources.
     ///
     /// This method returns `Ok(())` by default.
     async fn list_parts(&self, _req: &mut S3Request<ListPartsInput>) -> S3Result<()> {
+        Ok(())
+    }
+
+    /// Checks whether the PostObject request has accesses to the resources.
+    ///
+    /// This method returns `Ok(())` by default.
+    async fn post_object(&self, _req: &mut S3Request<PostObjectInput>) -> S3Result<()> {
         Ok(())
     }
 

@@ -9,6 +9,18 @@ updates:
     directory: "/" # Location of package manifests
     schedule:
       interval: "monthly"
+    ignore:
+      - dependency-name: "quick-xml"
+        versions: [ "0.38.x","0.39.x" ]
+    groups:
+      dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
     groups:
       dependencies:
         patterns:

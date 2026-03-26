@@ -26,7 +26,45 @@ pub fn codegen(ops: &Operations) {
         let input = &op.input;
         let output = &op.output;
 
-        codegen_doc(op.doc.as_deref());
+        if op.is_minio_extension {
+            g!("#[cfg(feature = \"minio\")]");
+        }
+
+        if op.name == "PostObject" {
+            g([
+                "/// POST Object (multipart form upload)",
+                "///",
+                "/// This is a synthetic method separated from `PutObject` so implementations can distinguish",
+                "/// POST vs PUT. By default it delegates to [`S3::put_object`] to keep behavior identical.",
+            ]);
+            g!("async fn post_object(&self, req: S3Request<PostObjectInput>) -> S3Result<S3Response<PostObjectOutput>> {{");
+            g!("let resp = self.put_object(req.map_input(crate::dto::post_object_input_into_put_object_input)).await?;");
+            g!("Ok(resp.map_output(crate::dto::put_object_output_into_post_object_output))");
+            g!("}}");
+            g!();
+            continue;
+        }
+
+        if op.name == "ListObjectVersionsM" {
+            g([
+                "/// `MinIO` compatibility extension for `GET /{bucket}?versions&metadata=true`.",
+                "///",
+                "/// This is not part of the AWS S3 API. Implementations may return MinIO-specific",
+                "/// metadata fields for each listed version/delete marker while preserving the",
+                "/// standard `ListObjectVersions` behavior for plain `?versions` requests.",
+            ]);
+        } else if op.name == "ListObjectsV2M" {
+            g([
+                "/// `MinIO` compatibility extension for `GET /{bucket}?list-type=2&metadata=true`.",
+                "///",
+                "/// This is not part of the AWS S3 API. Implementations may return MinIO-specific",
+                "/// metadata fields for each listed object while preserving the standard",
+                "/// `ListObjectsV2` behavior for plain `?list-type=2` requests.",
+            ]);
+        } else {
+            codegen_doc(op.doc.as_deref());
+        }
+
         g!("async fn {method_name}(&self, _req: S3Request<{input}>) -> S3Result<S3Response<{output}>> {{");
         g!("Err(s3_error!(NotImplemented, \"{} is not implemented yet\"))", op.name);
         g!("}}");

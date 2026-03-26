@@ -30,6 +30,7 @@ use std::io::Write;
 //   Serialize: CreateBucketConfiguration
 // Deserialize: CreateBucketConfiguration
 //   Serialize: CreateMultipartUploadOutput
+//   Serialize: CreateSessionOutput
 //   Serialize: Delete
 // Deserialize: Delete
 //   Serialize: DeleteObjectsOutput
@@ -72,6 +73,8 @@ use std::io::Write;
 // Deserialize: ListBucketMetricsConfigurationsOutput
 //   Serialize: ListBucketsOutput
 // Deserialize: ListBucketsOutput
+//   Serialize: ListDirectoryBucketsOutput
+// Deserialize: ListDirectoryBucketsOutput
 //   Serialize: ListMultipartUploadsOutput
 //   Serialize: ListObjectVersionsOutput
 //   Serialize: ListObjectsOutput
@@ -126,6 +129,8 @@ use std::io::Write;
 // DeserializeContent: AccessControlTranslation
 //   SerializeContent: AccessKeyIdType
 // DeserializeContent: AccessKeyIdType
+//   SerializeContent: AccessKeyIdValue
+// DeserializeContent: AccessKeyIdValue
 //   SerializeContent: AccessKeySecretType
 // DeserializeContent: AccessKeySecretType
 //   SerializeContent: AccessPointArn
@@ -238,6 +243,7 @@ use std::io::Write;
 //   SerializeContent: CreateBucketConfiguration
 // DeserializeContent: CreateBucketConfiguration
 //   SerializeContent: CreateMultipartUploadOutput
+//   SerializeContent: CreateSessionOutput
 //   SerializeContent: CreationDate
 // DeserializeContent: CreationDate
 //   SerializeContent: Credentials
@@ -275,6 +281,8 @@ use std::io::Write;
 // DeserializeContent: Description
 //   SerializeContent: Destination
 // DeserializeContent: Destination
+//   SerializeContent: DirectoryBucketToken
+// DeserializeContent: DirectoryBucketToken
 //   SerializeContent: DisplayName
 // DeserializeContent: DisplayName
 //   SerializeContent: ETag
@@ -463,6 +471,8 @@ use std::io::Write;
 // DeserializeContent: ListBucketMetricsConfigurationsOutput
 //   SerializeContent: ListBucketsOutput
 // DeserializeContent: ListBucketsOutput
+//   SerializeContent: ListDirectoryBucketsOutput
+// DeserializeContent: ListDirectoryBucketsOutput
 //   SerializeContent: ListMultipartUploadsOutput
 //   SerializeContent: ListObjectVersionsOutput
 //   SerializeContent: ListObjectsOutput
@@ -728,6 +738,12 @@ use std::io::Write;
 // DeserializeContent: ServerSideEncryptionConfiguration
 //   SerializeContent: ServerSideEncryptionRule
 // DeserializeContent: ServerSideEncryptionRule
+//   SerializeContent: SessionCredentialValue
+// DeserializeContent: SessionCredentialValue
+//   SerializeContent: SessionCredentials
+// DeserializeContent: SessionCredentials
+//   SerializeContent: SessionExpiration
+// DeserializeContent: SessionExpiration
 //   SerializeContent: Setting
 // DeserializeContent: Setting
 //   SerializeContent: SimplePrefix
@@ -936,6 +952,12 @@ impl<'xml> Deserialize<'xml> for CreateBucketConfiguration {
 impl Serialize for CreateMultipartUploadOutput {
     fn serialize<W: Write>(&self, s: &mut Serializer<W>) -> SerResult {
         s.content_with_ns("InitiateMultipartUploadResult", XMLNS_S3, self)
+    }
+}
+
+impl Serialize for CreateSessionOutput {
+    fn serialize<W: Write>(&self, s: &mut Serializer<W>) -> SerResult {
+        s.content_with_ns("CreateSessionResult", XMLNS_S3, self)
     }
 }
 
@@ -1176,6 +1198,18 @@ impl Serialize for ListBucketsOutput {
 impl<'xml> Deserialize<'xml> for ListBucketsOutput {
     fn deserialize(d: &mut Deserializer<'xml>) -> DeResult<Self> {
         d.named_element("ListAllMyBucketsResult", Deserializer::content)
+    }
+}
+
+impl Serialize for ListDirectoryBucketsOutput {
+    fn serialize<W: Write>(&self, s: &mut Serializer<W>) -> SerResult {
+        s.content_with_ns("ListAllMyDirectoryBucketsResult", XMLNS_S3, self)
+    }
+}
+
+impl<'xml> Deserialize<'xml> for ListDirectoryBucketsOutput {
+    fn deserialize(d: &mut Deserializer<'xml>) -> DeResult<Self> {
+        d.named_element("ListAllMyDirectoryBucketsResult", Deserializer::content)
     }
 }
 
@@ -3017,6 +3051,13 @@ impl SerializeContent for CreateMultipartUploadOutput {
         if let Some(ref val) = self.upload_id {
             s.content("UploadId", val)?;
         }
+        Ok(())
+    }
+}
+
+impl SerializeContent for CreateSessionOutput {
+    fn serialize_content<W: Write>(&self, s: &mut Serializer<W>) -> SerResult {
+        s.content("Credentials", &self.credentials)?;
         Ok(())
     }
 }
@@ -5871,6 +5912,45 @@ impl<'xml> DeserializeContent<'xml> for ListBucketsOutput {
         })
     }
 }
+impl SerializeContent for ListDirectoryBucketsOutput {
+    fn serialize_content<W: Write>(&self, s: &mut Serializer<W>) -> SerResult {
+        if let Some(iter) = &self.buckets {
+            s.list("Buckets", "Bucket", iter)?;
+        }
+        if let Some(ref val) = self.continuation_token {
+            s.content("ContinuationToken", val)?;
+        }
+        Ok(())
+    }
+}
+
+impl<'xml> DeserializeContent<'xml> for ListDirectoryBucketsOutput {
+    fn deserialize_content(d: &mut Deserializer<'xml>) -> DeResult<Self> {
+        let mut buckets: Option<Buckets> = None;
+        let mut continuation_token: Option<DirectoryBucketToken> = None;
+        d.for_each_element(|d, x| match x {
+            b"Buckets" => {
+                if buckets.is_some() {
+                    return Err(DeError::DuplicateField);
+                }
+                buckets = Some(d.list_content("Bucket")?);
+                Ok(())
+            }
+            b"ContinuationToken" => {
+                if continuation_token.is_some() {
+                    return Err(DeError::DuplicateField);
+                }
+                continuation_token = Some(d.content()?);
+                Ok(())
+            }
+            _ => Err(DeError::UnexpectedTagName),
+        })?;
+        Ok(Self {
+            buckets,
+            continuation_token,
+        })
+    }
+}
 impl SerializeContent for ListMultipartUploadsOutput {
     fn serialize_content<W: Write>(&self, s: &mut Serializer<W>) -> SerResult {
         if let Some(ref val) = self.bucket {
@@ -5960,20 +6040,11 @@ impl SerializeContent for ListObjectVersionsOutput {
 
 impl SerializeContent for ListObjectsOutput {
     fn serialize_content<W: Write>(&self, s: &mut Serializer<W>) -> SerResult {
-        if let Some(iter) = &self.common_prefixes {
-            s.flattened_list("CommonPrefixes", iter)?;
+        if let Some(ref val) = self.name {
+            s.content("Name", val)?;
         }
-        if let Some(iter) = &self.contents {
-            s.flattened_list("Contents", iter)?;
-        }
-        if let Some(ref val) = self.delimiter {
-            s.content("Delimiter", val)?;
-        }
-        if let Some(ref val) = self.encoding_type {
-            s.content("EncodingType", val)?;
-        }
-        if let Some(ref val) = self.is_truncated {
-            s.content("IsTruncated", val)?;
+        if let Some(ref val) = self.prefix {
+            s.content("Prefix", val)?;
         }
         if let Some(ref val) = self.marker {
             s.content("Marker", val)?;
@@ -5981,14 +6052,23 @@ impl SerializeContent for ListObjectsOutput {
         if let Some(ref val) = self.max_keys {
             s.content("MaxKeys", val)?;
         }
-        if let Some(ref val) = self.name {
-            s.content("Name", val)?;
+        if let Some(ref val) = self.is_truncated {
+            s.content("IsTruncated", val)?;
+        }
+        if let Some(iter) = &self.contents {
+            s.flattened_list("Contents", iter)?;
+        }
+        if let Some(iter) = &self.common_prefixes {
+            s.flattened_list("CommonPrefixes", iter)?;
+        }
+        if let Some(ref val) = self.delimiter {
+            s.content("Delimiter", val)?;
         }
         if let Some(ref val) = self.next_marker {
             s.content("NextMarker", val)?;
         }
-        if let Some(ref val) = self.prefix {
-            s.content("Prefix", val)?;
+        if let Some(ref val) = self.encoding_type {
+            s.content("EncodingType", val)?;
         }
         Ok(())
     }
@@ -5996,38 +6076,38 @@ impl SerializeContent for ListObjectsOutput {
 
 impl SerializeContent for ListObjectsV2Output {
     fn serialize_content<W: Write>(&self, s: &mut Serializer<W>) -> SerResult {
-        if let Some(iter) = &self.common_prefixes {
-            s.flattened_list("CommonPrefixes", iter)?;
+        if let Some(ref val) = self.name {
+            s.content("Name", val)?;
+        }
+        if let Some(ref val) = self.prefix {
+            s.content("Prefix", val)?;
+        }
+        if let Some(ref val) = self.max_keys {
+            s.content("MaxKeys", val)?;
+        }
+        if let Some(ref val) = self.key_count {
+            s.content("KeyCount", val)?;
+        }
+        if let Some(ref val) = self.continuation_token {
+            s.content("ContinuationToken", val)?;
+        }
+        if let Some(ref val) = self.is_truncated {
+            s.content("IsTruncated", val)?;
+        }
+        if let Some(ref val) = self.next_continuation_token {
+            s.content("NextContinuationToken", val)?;
         }
         if let Some(iter) = &self.contents {
             s.flattened_list("Contents", iter)?;
         }
-        if let Some(ref val) = self.continuation_token {
-            s.content("ContinuationToken", val)?;
+        if let Some(iter) = &self.common_prefixes {
+            s.flattened_list("CommonPrefixes", iter)?;
         }
         if let Some(ref val) = self.delimiter {
             s.content("Delimiter", val)?;
         }
         if let Some(ref val) = self.encoding_type {
             s.content("EncodingType", val)?;
-        }
-        if let Some(ref val) = self.is_truncated {
-            s.content("IsTruncated", val)?;
-        }
-        if let Some(ref val) = self.key_count {
-            s.content("KeyCount", val)?;
-        }
-        if let Some(ref val) = self.max_keys {
-            s.content("MaxKeys", val)?;
-        }
-        if let Some(ref val) = self.name {
-            s.content("Name", val)?;
-        }
-        if let Some(ref val) = self.next_continuation_token {
-            s.content("NextContinuationToken", val)?;
-        }
-        if let Some(ref val) = self.prefix {
-            s.content("Prefix", val)?;
         }
         if let Some(ref val) = self.start_after {
             s.content("StartAfter", val)?;
@@ -9330,6 +9410,61 @@ impl<'xml> DeserializeContent<'xml> for ServerSideEncryptionRule {
         Ok(Self {
             apply_server_side_encryption_by_default,
             bucket_key_enabled,
+        })
+    }
+}
+impl SerializeContent for SessionCredentials {
+    fn serialize_content<W: Write>(&self, s: &mut Serializer<W>) -> SerResult {
+        s.content("AccessKeyId", &self.access_key_id)?;
+        s.timestamp("Expiration", &self.expiration, TimestampFormat::DateTime)?;
+        s.content("SecretAccessKey", &self.secret_access_key)?;
+        s.content("SessionToken", &self.session_token)?;
+        Ok(())
+    }
+}
+
+impl<'xml> DeserializeContent<'xml> for SessionCredentials {
+    fn deserialize_content(d: &mut Deserializer<'xml>) -> DeResult<Self> {
+        let mut access_key_id: Option<AccessKeyIdValue> = None;
+        let mut expiration: Option<SessionExpiration> = None;
+        let mut secret_access_key: Option<SessionCredentialValue> = None;
+        let mut session_token: Option<SessionCredentialValue> = None;
+        d.for_each_element(|d, x| match x {
+            b"AccessKeyId" => {
+                if access_key_id.is_some() {
+                    return Err(DeError::DuplicateField);
+                }
+                access_key_id = Some(d.content()?);
+                Ok(())
+            }
+            b"Expiration" => {
+                if expiration.is_some() {
+                    return Err(DeError::DuplicateField);
+                }
+                expiration = Some(d.timestamp(TimestampFormat::DateTime)?);
+                Ok(())
+            }
+            b"SecretAccessKey" => {
+                if secret_access_key.is_some() {
+                    return Err(DeError::DuplicateField);
+                }
+                secret_access_key = Some(d.content()?);
+                Ok(())
+            }
+            b"SessionToken" => {
+                if session_token.is_some() {
+                    return Err(DeError::DuplicateField);
+                }
+                session_token = Some(d.content()?);
+                Ok(())
+            }
+            _ => Err(DeError::UnexpectedTagName),
+        })?;
+        Ok(Self {
+            access_key_id: access_key_id.ok_or(DeError::MissingField)?,
+            expiration: expiration.ok_or(DeError::MissingField)?,
+            secret_access_key: secret_access_key.ok_or(DeError::MissingField)?,
+            session_token: session_token.ok_or(DeError::MissingField)?,
         })
     }
 }

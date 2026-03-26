@@ -20,12 +20,11 @@ pub fn check<T, E>(result: Result<T, SdkError<E>>, allowed_codes: &[&str]) -> Re
 where
     E: fmt::Debug + ProvideErrorMetadata,
 {
-    if let Err(SdkError::ServiceError(ref err)) = result {
-        if let Some(code) = err.err().code() {
-            if allowed_codes.contains(&code) {
-                return Ok(None);
-            }
-        }
+    if let Err(SdkError::ServiceError(ref err)) = result
+        && let Some(code) = err.err().code()
+        && allowed_codes.contains(&code)
+    {
+        return Ok(None);
     }
     if let Err(ref err) = result {
         error!(?err);
@@ -52,6 +51,37 @@ pub async fn delete_bucket_loose(s3: &aws_sdk_s3::Client, bucket: &str) -> Resul
 #[tracing::instrument(skip(s3))]
 pub async fn delete_bucket_strict(s3: &aws_sdk_s3::Client, bucket: &str) -> Result {
     s3.delete_bucket().bucket(bucket).send().await?;
+    Ok(())
+}
+
+#[tracing::instrument(skip(s3))]
+pub async fn delete_bucket_all(s3: &aws_sdk_s3::Client, bucket: &str) -> Result {
+    let mut continuation_token = None;
+    loop {
+        let result = s3
+            .list_objects_v2()
+            .bucket(bucket)
+            .set_continuation_token(continuation_token)
+            .send()
+            .await;
+        let Some(list_resp) = check(result, &["NoSuchBucket"])? else {
+            return Ok(());
+        };
+
+        for obj in list_resp.contents() {
+            if let Some(key) = obj.key() {
+                s3.delete_object().bucket(bucket).key(key).send().await?;
+            }
+        }
+
+        if list_resp.is_truncated() == Some(true) {
+            continuation_token = list_resp.next_continuation_token().map(String::from);
+        } else {
+            break;
+        }
+    }
+
+    delete_bucket_loose(s3, bucket).await?;
     Ok(())
 }
 

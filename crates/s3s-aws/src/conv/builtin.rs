@@ -69,19 +69,6 @@ impl AwsConversion for s3s::dto::Timestamp {
     }
 }
 
-impl AwsConversion for s3s::dto::ContentType {
-    type Target = String;
-    type Error = S3Error;
-
-    fn try_from_aws(x: Self::Target) -> S3Result<Self> {
-        x.parse::<Self>().map_err(S3Error::internal_error)
-    }
-
-    fn try_into_aws(x: Self) -> S3Result<Self::Target> {
-        Ok(x.to_string())
-    }
-}
-
 impl AwsConversion for s3s::dto::CopySource {
     type Target = String;
     type Error = S3Error;
@@ -223,5 +210,22 @@ impl AwsConversion for s3s::dto::ETag {
 
     fn try_into_aws(x: Self) -> S3Result<Self::Target> {
         Ok(format!("\"{}\"", x.value()))
+    }
+}
+
+impl AwsConversion for s3s::dto::ETagCondition {
+    type Target = String;
+
+    type Error = S3Error;
+
+    fn try_from_aws(x: Self::Target) -> S3Result<Self> {
+        Self::parse_http_header(x.as_bytes()).map_err(S3Error::internal_error)
+    }
+
+    fn try_into_aws(x: Self) -> S3Result<Self::Target> {
+        match x {
+            s3s::dto::ETagCondition::ETag(etag) => Ok(format!("\"{}\"", etag.value())),
+            s3s::dto::ETagCondition::Any => Ok("*".to_string()),
+        }
     }
 }
